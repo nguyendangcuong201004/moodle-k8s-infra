@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: moodle-efs-pv
+spec:
+  capacity:
+    storage: 50Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc 
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-099f5b116282675c8 
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: moodle-efs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moodle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: moodle
+  template:
+    metadata:
+      labels:
+        app: moodle
+    spec:
+      containers:
+      - name: moodle
+        image: ndcuongdevops/moodle-lms:v1.0.2
+        ports:
+        - containerPort: 80
+        env:
+        - name: MOODLE_DB_HOST
+          value: "moodle-db-postgres.cbues80o4qjn.ap-southeast-1.rds.amazonaws.com"
+        - name: MOODLE_DB_NAME
+          value: "moodle"
+        - name: MOODLE_DB_USER
+          value: "moodleuser"
+        - name: MOODLE_DB_PASSWORD
+          value: "Anhmeow123"
+        
+        volumeMounts:
+        - name: moodle-data-volume
+          mountPath: /var/www/moodledata 
+      
+      volumes:
+      - name: moodle-data-volume
+        persistentVolumeClaim:
+          claimName: moodle-efs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moodle-service
+spec:
+  selector:
+    app: moodle
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
