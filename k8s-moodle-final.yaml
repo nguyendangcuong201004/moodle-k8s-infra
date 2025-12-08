@@ -12,7 +12,7 @@ spec:
   storageClassName: efs-sc 
   csi:
     driver: efs.csi.aws.com
-    volumeHandle: fs-099f5b116282675c8 
+    volumeHandle: fs-06d0719ff9c27371a
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -42,7 +42,7 @@ spec:
     spec:
       containers:
       - name: moodle
-        image: ndcuongdevops/moodle-lms:v1.0.2
+        image: ndcuongdevops/moodle-lms:v1.0.3
         ports:
         - containerPort: 80
         env:
