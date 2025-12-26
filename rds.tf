@@ -1,4 +1,3 @@
-# 1. Nhóm Subnet cho Database
 resource "aws_db_subnet_group" "moodle_db_subnet_group" {
   name       = "moodle-db-subnet-group"
   subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id]
@@ -6,7 +5,6 @@ resource "aws_db_subnet_group" "moodle_db_subnet_group" {
   tags = { Name = "Moodle DB Subnet Group" }
 }
 
-# 2. Tường lửa (Security Group)
 resource "aws_security_group" "rds_sg" {
   name        = "moodle-rds-sg"
   description = "Allow inbound traffic for Postgres"
@@ -28,7 +26,6 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
-# 3. Tạo Database Instance (RDS Postgres Free Tier)
 resource "aws_db_instance" "moodle_db" {
   identifier             = "moodle-db-postgres"
   engine                 = "postgres"
@@ -49,7 +46,6 @@ resource "aws_db_instance" "moodle_db" {
   tags = { Name = "Moodle RDS" }
 }
 
-# 4. Xuất ra địa chỉ
 output "rds_endpoint" {
   value = aws_db_instance.moodle_db.endpoint
 }

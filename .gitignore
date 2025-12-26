@@ -1,9 +1,6 @@
-# File trạng thái chứa thông tin nhạy cảm (AWS Secrets, Public IPs)
 *.tfstate
 *.tfstate.*
 
-# Thư mục chứa binaries của Providers
 .terraform/
 
-# Logs và backups
 crash.log

@@ -1,4 +1,3 @@
-# --- 1. IAM Role cho Cluster (Quyền để EKS điều khiển AWS) ---
 resource "aws_iam_role" "eks_cluster_role" {
   name = "moodle-eks-cluster-role"
 
@@ -17,13 +16,11 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
   role       = aws_iam_role.eks_cluster_role.name
 }
 
-# --- 2. EKS CLUSTER (Máy chủ điều khiển - Master) ---
 resource "aws_eks_cluster" "moodle_cluster" {
   name     = "moodle-cluster"
   role_arn = aws_iam_role.eks_cluster_role.arn
 
   vpc_config {
-    # Kết nối vào 2 subnet public mà bạn đã tạo ở file vpc.tf
     subnet_ids = [
       aws_subnet.public_1.id,
       aws_subnet.public_2.id
@@ -33,7 +30,6 @@ resource "aws_eks_cluster" "moodle_cluster" {
   depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
 }
 
-# --- 3. IAM Role cho Node (Máy con - Worker) ---
 resource "aws_iam_role" "eks_node_role" {
   name = "moodle-eks-node-role"
 
@@ -47,7 +43,6 @@ resource "aws_iam_role" "eks_node_role" {
   })
 }
 
-# Gán quyền cho Node
 resource "aws_iam_role_policy_attachment" "eks_worker_node_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
   role       = aws_iam_role.eks_node_role.name
@@ -63,7 +58,6 @@ resource "aws_iam_role_policy_attachment" "eks_container_registry" {
   role       = aws_iam_role.eks_node_role.name
 }
 
-# --- 4. NODE GROUP (Tạo các máy ảo thật để chạy Moodle) ---
 resource "aws_eks_node_group" "moodle_nodes" {
   cluster_name    = aws_eks_cluster.moodle_cluster.name
   node_group_name = "moodle-node-group"
@@ -85,7 +79,6 @@ resource "aws_eks_node_group" "moodle_nodes" {
   ]
 }
 
-# --- 5. IAM Role cho EFS CSI Driver (Theo yêu cầu AWS Add-on) ---
 resource "aws_iam_role" "efs_csi_role" {
   name = "moodle-efs-csi-role"
 
@@ -106,13 +99,11 @@ resource "aws_iam_role" "efs_csi_role" {
   })
 }
 
-# Gán chính sách EFS Driver Policy cho Role
 resource "aws_iam_role_policy_attachment" "efs_csi_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
   role       = aws_iam_role.efs_csi_role.name
 }
 
-# 6. Xuất ra ARN của Role EFS (Để dùng trong AWS CLI)
 output "efs_csi_role_arn" {
   value = aws_iam_role.efs_csi_role.arn
 }

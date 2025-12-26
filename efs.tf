@@ -1,10 +1,8 @@
-# --- 1. Security Group cho EFS (Cho phép máy chủ EKS kết nối) ---
 resource "aws_security_group" "efs_sg" {
   name        = "moodle-efs-sg"
   description = "Allow inbound NFS traffic from EKS Nodes"
   vpc_id      = aws_vpc.moodle_vpc.id
 
-  # Cho phép kết nối vào cổng NFS (2049) từ mọi IP trong VPC
   ingress {
     from_port   = 2049
     to_port     = 2049
@@ -20,7 +18,6 @@ resource "aws_security_group" "efs_sg" {
   }
 }
 
-# --- 2. Tạo File System (Ổ cứng mạng EFS) ---
 resource "aws_efs_file_system" "moodle_efs" {
   creation_token = "moodle-efs-token"
   performance_mode = "generalPurpose"
@@ -31,7 +28,6 @@ resource "aws_efs_file_system" "moodle_efs" {
   }
 }
 
-# --- 3. Tạo Mount Target (Cắm dây mạng EFS vào 2 Subnet) ---
 # EFS cần được cắm vào ít nhất 2 Subnet để các Node có thể kết nối.
 resource "aws_efs_mount_target" "mt_1" {
   file_system_id  = aws_efs_file_system.moodle_efs.id
@@ -45,7 +41,6 @@ resource "aws_efs_mount_target" "mt_2" {
   security_groups = [aws_security_group.efs_sg.id]
 }
 
-# --- 4. Xuất ra ID của EFS để dùng trong K8s ---
 output "efs_id" {
   value = aws_efs_file_system.moodle_efs.id
 }
