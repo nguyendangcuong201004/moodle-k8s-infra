@@ -9,10 +9,6 @@ terraform {
 
 # Cấu hình AWS Provider
 provider "aws" {
-  region = "ap-southeast-1" 
-
-  assume_role {
-    role_arn     = "arn:aws:iam::717251295508:role/DevOpsRole"
-    session_name = "TerraformTestSession"
-  }
+  region  = "ap-southeast-1"
+  profile = "devops"
 }
