@@ -12,6 +12,7 @@ fi
 
 AWS_PROFILE="${AWS_PROFILE:-devops}"
 AWS_REGION="${AWS_REGION:-ap-southeast-1}"
+AWS_ROLE_ARN="${AWS_ROLE_ARN:-}"
 CLUSTER_NAME="moodle-cluster"
 AWS_DIR="moodle-k8s-infra/aws"
 K8S_YAML="k8s-moodle.yaml"
@@ -22,16 +23,44 @@ command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; 
 command -v aws >/dev/null 2>&1 || { echo "awscli is required"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required"; exit 1; }
+command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required (usually from gettext)"; exit 1; }
 
 AWS_CONFIG_FILE="${HOME}/.aws/config"
 if [[ ! -f "${AWS_CONFIG_FILE}" ]]; then
-  echo "AWS config file ${AWS_CONFIG_FILE} not found. Please configure it first."
-  exit 1
+  echo "AWS config file ${AWS_CONFIG_FILE} not found, creating a new one with profile '${AWS_PROFILE}'."
+  mkdir -p "$(dirname "${AWS_CONFIG_FILE}")"
+  cat > "${AWS_CONFIG_FILE}" <<EOF
+[default]
+region = ${AWS_REGION}
+
+[profile ${AWS_PROFILE}]
+region = ${AWS_REGION}
+EOF
 fi
 
 if ! grep -q "^\[profile ${AWS_PROFILE}\]" "${AWS_CONFIG_FILE}"; then
-  echo "Profile '${AWS_PROFILE}' not found in ${AWS_CONFIG_FILE}. Please configure it first."
-  exit 1
+  echo "Profile '${AWS_PROFILE}' not found in ${AWS_CONFIG_FILE}, appending it."
+  {
+    echo
+    echo "[profile ${AWS_PROFILE}]"
+    echo "region = ${AWS_REGION}"
+  } >> "${AWS_CONFIG_FILE}"
+fi
+
+# If AWS_ROLE_ARN is provided in .env, ensure the profile has role_arn + source_profile
+if [[ -n "${AWS_ROLE_ARN}" ]]; then
+  echo "Ensuring role_arn is set for profile '${AWS_PROFILE}' using AWS_ROLE_ARN from .env."
+  # If role_arn not present in this profile block, append it (simple check)
+  if ! awk "/^\[profile ${AWS_PROFILE}\]/ {found=1} found && /role_arn/ {print; exit}" "${AWS_CONFIG_FILE}" >/dev/null 2>&1; then
+    # Append role_arn and source_profile at the end of the file (after existing profile block)
+    {
+      echo
+      echo "# Added by moodle-k8s-infra aws/setup.sh"
+      echo "[profile ${AWS_PROFILE}]"
+      echo "role_arn = ${AWS_ROLE_ARN}"
+      echo "source_profile = default"
+    } >> "${AWS_CONFIG_FILE}"
+  fi
 fi
 
 export AWS_PROFILE
@@ -67,14 +96,21 @@ aws eks create-addon \
   --resolve-conflicts OVERWRITE || true
 
 echo
-echo "=== Step 2.3: Update volumeHandle in ${K8S_YAML} with new EFS_ID and apply ==="
+echo "=== Step 2.3: Render ${K8S_YAML} with EFS_ID and DB envs, then apply ==="
 if [[ ! -f "${K8S_YAML}" ]]; then
   echo "File ${K8S_YAML} not found. Aborting."
   exit 1
 fi
 
-echo "Updating volumeHandle and applying manifests..."
-sed -E "s|(volumeHandle: ).*|\1${EFS_ID}|" "${K8S_YAML}" | kubectl apply -f -
+echo "Preparing environment variables for Kubernetes manifest..."
+export EFS_ID
+export MOODLE_DB_HOST="${DB_HOST}"
+export MOODLE_DB_NAME="${MOODLE_DB_NAME:-moodle}"
+export MOODLE_DB_USER="${MOODLE_DB_USER:-moodleuser}"
+export MOODLE_DB_PASSWORD="${MOODLE_DB_PASS:?Set MOODLE_DB_PASS in .env}"
+
+echo "Applying Kubernetes manifests with envsubst..."
+envsubst < "${K8S_YAML}" | kubectl apply -f -
 
 echo
 echo "=== Step 3: Scale CoreDNS down to 1 replica ==="

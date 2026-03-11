@@ -12,7 +12,7 @@ spec:
   storageClassName: efs-sc 
   csi:
     driver: efs.csi.aws.com
-    volumeHandle: fs-0914f0fab2e6fb22e
+    volumeHandle: "${EFS_ID}"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -47,13 +47,13 @@ spec:
         - containerPort: 80
         env:
         - name: MOODLE_DB_HOST
-          value: "moodle-db-postgres.cbues80o4qjn.ap-southeast-1.rds.amazonaws.com"
+          value: "${MOODLE_DB_HOST}"
         - name: MOODLE_DB_NAME
-          value: "moodle"
+          value: "${MOODLE_DB_NAME}"
         - name: MOODLE_DB_USER
-          value: "moodleuser"
+          value: "${MOODLE_DB_USER}"
         - name: MOODLE_DB_PASSWORD
-          value: "Anhmeow123"
+          value: "${MOODLE_DB_PASSWORD}"
         
         volumeMounts:
         - name: moodle-data-volume
