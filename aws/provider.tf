@@ -9,5 +9,6 @@ terraform {
 
 # Cấu hình AWS Provider
 provider "aws" {
-  region = "ap-southeast-1" 
+  region  = "ap-southeast-1"
+  profile = "devops"
 }
