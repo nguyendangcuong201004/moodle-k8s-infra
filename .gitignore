@@ -4,3 +4,7 @@
 .terraform/
 
 crash.log
+
+.env
+
+kubeconfig-do

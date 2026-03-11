@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+  # Load shared environment variables from .env at moodle-k8s-infra/
+  set -a
+  # shellcheck disable=SC1090
+  source "${SCRIPT_DIR}/.env"
+  set +a
+fi
+
 AWS_PROFILE="${AWS_PROFILE:-devops}"
-AWS_REGION="ap-southeast-1"
+AWS_REGION="${AWS_REGION:-ap-southeast-1}"
 CLUSTER_NAME="moodle-cluster"
 AWS_DIR="moodle-k8s-infra/aws"
 K8S_YAML="k8s-moodle.yaml"
 
 echo "=== Step 0: Check environment and AWS profile ==="
-echo "Using AWS_PROFILE=${AWS_PROFILE} (override with export AWS_PROFILE=... if needed)"
+echo "Using AWS_PROFILE (set from .env or default)"
 command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; }
 command -v aws >/dev/null 2>&1 || { echo "awscli is required"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
@@ -36,20 +45,15 @@ if [[ ! -d ".terraform" ]]; then
 fi
 
 echo "Running terraform apply (this may incur cost)..."
+export TF_IN_AUTOMATION=1
+export TF_LOG=ERROR
 terraform apply -auto-approve
 
-echo "Reading Terraform outputs (efs_csi_role_arn, efs_id, rds_endpoint)..."
+echo "Reading Terraform outputs..."
 TF_JSON=$(terraform output -json)
-EFS_ROLE_ARN=$(echo "${TF_JSON}" | jq -r '.efs_csi_role_arn.value')
 EFS_ID=$(echo "${TF_JSON}" | jq -r '.efs_id.value')
 RDS_ENDPOINT=$(echo "${TF_JSON}" | jq -r '.rds_endpoint.value')
-
-echo "efs_csi_role_arn = ${EFS_ROLE_ARN}"
-echo "efs_id           = ${EFS_ID}"
-echo "rds_endpoint     = ${RDS_ENDPOINT}"
-
 DB_HOST="${RDS_ENDPOINT%%:*}"
-echo "Derived DB_HOST = ${DB_HOST}"
 
 echo
 echo "=== Step 2.1: Configure kubectl for EKS cluster ==="
@@ -69,7 +73,7 @@ if [[ ! -f "${K8S_YAML}" ]]; then
   exit 1
 fi
 
-echo "Replacing 'volumeHandle: ...' with 'volumeHandle: ${EFS_ID}' and applying..."
+echo "Updating volumeHandle and applying manifests..."
 sed -E "s|(volumeHandle: ).*|\1${EFS_ID}|" "${K8S_YAML}" | kubectl apply -f -
 
 echo
@@ -86,16 +90,17 @@ if [[ -z "${MOODLE_POD}" ]]; then
   echo "No pod found with label app=moodle. Please check 'kubectl get pods'."
   exit 1
 fi
-echo "Detected Moodle pod: ${MOODLE_POD}"
 
-DB_HOST_FINAL="${MOODLE_DB_HOST:-${DB_HOST}}"
-WWWROOT="${MOODLE_WWWROOT:-https://devopshcmut.site}"
-ADMIN_PASS="${MOODLE_ADMIN_PASS:-Anhmeow123}"
-ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:-admin@hcmut.edu.vn}"
+DB_PASS="${MOODLE_DB_PASS:?Set MOODLE_DB_PASS in .env}"
+SITE_URL="${MOODLE_WWWROOT:?Set MOODLE_WWWROOT in .env}"
+ADMIN_USER="${MOODLE_ADMIN_USER:?Set MOODLE_ADMIN_USER in .env}"
+ADMIN_PASS="${MOODLE_ADMIN_PASS:?Set MOODLE_ADMIN_PASS in .env}"
+ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:?Set MOODLE_ADMIN_EMAIL in .env}"
+DB_USER="${MOODLE_DB_USER:-moodleuser}"
 
 TMP_CONFIG="$(mktemp /tmp/moodle-config.php.XXXXXX)"
 
-cat > "${TMP_CONFIG}" <<EOF
+cat > "${TMP_CONFIG}" <<CONFIG_EOF
 <?php
 unset(\$CFG);
 global \$CFG;
@@ -103,10 +108,10 @@ global \$CFG;
 
 \$CFG->dbtype    = 'pgsql';
 \$CFG->dblibrary = 'native';
-\$CFG->dbhost    = '${DB_HOST_FINAL}';
+\$CFG->dbhost    = '${DB_HOST}';
 \$CFG->dbname    = 'moodle';
-\$CFG->dbuser    = 'moodleuser';
-\$CFG->dbpass    = 'Anhmeow123';
+\$CFG->dbuser    = '${DB_USER}';
+\$CFG->dbpass    = '${DB_PASS}';
 \$CFG->prefix    = 'mdl_';
 \$CFG->dboptions = array (
   'dbpersist' => 0,
@@ -114,18 +119,17 @@ global \$CFG;
   'dbsocket' => '',
 );
 
-\$CFG->wwwroot   = '${WWWROOT}';
+\$CFG->wwwroot   = '${SITE_URL}';
 \$CFG->sslproxy  = true;
 \$CFG->dataroot  = '/var/www/moodledata';
-\$CFG->admin     = 'admin';
+\$CFG->admin     = '${ADMIN_USER}';
 \$CFG->directorypermissions = 02777;
 
-// Tối ưu hiệu năng
 \$CFG->themedesignermode = 0;
 \$CFG->cachejs = 1;
 
 require_once(__DIR__ . '/lib/setup.php');
-EOF
+CONFIG_EOF
 
 echo "Copying config.php to pod ${MOODLE_POD}..."
 kubectl cp "${TMP_CONFIG}" "${MOODLE_POD}:/var/www/html/config.php"
@@ -146,7 +150,7 @@ kubectl exec "${MOODLE_POD}" -- chmod -R 777 /var/www/moodledata
 
 kubectl exec "${MOODLE_POD}" -- runuser -u www-data -- php admin/cli/install_database.php \
   --lang=en \
-  --adminuser=admin \
+  --adminuser="${ADMIN_USER}" \
   --adminpass="${ADMIN_PASS}" \
   --adminemail="${ADMIN_EMAIL}" \
   --fullname="He thong E-learning HCMUT" \

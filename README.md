@@ -1,11 +1,15 @@
 # Moodle IaC – So sánh kiến trúc AWS vs DigitalOcean (Kubernetes)
 
-Repository này chứa hai bộ IaC để triển khai Moodle trên Kubernetes:
+Repository này chứa hai cách triển khai Moodle trên Kubernetes:
 
-- Thư mục `aws/`: EKS + RDS + EFS trên AWS.
-- Thư mục `digitalocean/`: DOKS (DigitalOcean Kubernetes) + Managed Database + Block Storage.
+- `aws/`: EKS + RDS + EFS trên AWS.
+- `digitalocean/`: DOKS + Managed PostgreSQL + Block Storage trên DigitalOcean.
 
-Tài liệu này giúp bạn hiểu **kiến trúc** của từng bên và **sự khác biệt chính**.
+README tập trung vào:
+
+- **Kiến trúc tổng quan** cho mỗi cloud.
+- **Flow script** deploy/destroy.
+- **Khác biệt quan trọng** khi chạy cùng một app trên hai cloud.
 
 ---
 
@@ -172,17 +176,20 @@ flowchart LR
   Node2 -->|5432| DODB
 ```
 
-Đặc trưng:
+Đặc trưng (tóm tắt):
 
-- DOKS & networking managed, ít resource Terraform hơn.
-- Database là Managed PostgreSQL với DB & user riêng, password qua biến Terraform (không hard-code trong code).
-- Storage dùng Block Storage:
-  - Đơn giản, tự động qua StorageClass `do-block-storage`.
-  - **ReadWriteOnce** – phù hợp 1 replica hoặc kiến trúc không cần share đọc/ghi từ nhiều node cùng lúc.
+- Cluster Kubernetes managed (DOKS).
+- Managed PostgreSQL + user app `moodleuser`.
+- Storage dùng Block Storage (`do-block-storage`, RWO) cho `moodledata`.
+
+- **Mật khẩu DB trên DigitalOcean**
+  - `moodleuser`: DO tự sinh, script đọc từ Terraform output `db_password`.
+  - `doadmin`: script cố gắng đọc qua DO API bằng `DO_TOKEN`, fallback là biến `DO_DB_ADMIN_PASSWORD`.
+  - Xóa hạ tầng DO: chạy `digitalocean/do_destroy.sh`.
 
 ---
 
-## 3. So sánh khác biệt chính
+## 3. So sánh nhanh AWS vs DigitalOcean
 
 - **Mạng & VPC**
   - **AWS**: tự định nghĩa VPC, subnet, route, security group → linh hoạt, chi tiết hơn nhưng phức tạp.
@@ -213,14 +220,51 @@ flowchart LR
 
 ---
 
-## 4. Gợi ý cải tiến tiếp theo
+## 4. Flow script AWS vs DigitalOcean
 
-- **Refactor secrets**:
-  - Tạo K8s `Secret` chứa `MOODLE_DB_HOST`, `MOODLE_DB_USER`, `MOODLE_DB_PASSWORD`, rồi Deployment chỉ đọc từ SecretEnv.
-  - Đồng bộ giữa Terraform outputs và K8s Secret (bằng script/CI hoặc Helm).
+### 4.1. AWS – `aws/aws_full_setup.sh`
 
-- **Cân nhắc RWX trên DigitalOcean**:
-  - Nếu bạn muốn scale Moodle nhiều replica như bên AWS (EFS):
-    - Cân nhắc triển khai NFS server bên trong cluster hoặc sử dụng giải pháp RWX khác trên DO.
+| Bước | Nội dung |
+|------|----------|
+| 0 | Kiểm tra công cụ (terraform, aws, kubectl, jq), kiểm tra AWS profile trong `.env`. |
+| 1 | **Terraform apply** trong `aws/`: tạo VPC, EKS, RDS, EFS; đọc output `efs_id`, `rds_endpoint` → `DB_HOST`. |
+| 2.1 | **Cấu hình kubectl cho EKS:** `aws eks update-kubeconfig --region ... --name moodle-cluster` (kubeconfig ghi vào `~/.kube/config`, dùng profile AWS). |
+| 2.2 | **Cài EFS CSI addon** cho cluster: `aws eks create-addon ... aws-efs-csi-driver`. |
+| 2.3 | **Sửa manifest:** thay `volumeHandle` trong `k8s-moodle.yaml` bằng `EFS_ID` rồi `kubectl apply`. |
+| 3 | Scale CoreDNS xuống 1 replica (tùy môi trường EKS). |
+| 4 | Chờ có pod Moodle → **tạo config.php** (host RDS, port để trống, không SSL bắt buộc) → `kubectl cp` vào pod. |
+| 5 | In thông tin Service (EXTERNAL-IP) để cập nhật DNS (Cloudflare). |
+| 6 | Chown/chmod `moodledata` → chạy **install_database.php** (không bước grant DB đặc biệt). |
 
-README này chỉ mô tả **kiến trúc**; chi tiết triển khai (lệnh `terraform apply`, `kubectl apply`, export biến môi trường…) có thể được thêm ở phần hướng dẫn sử dụng nếu cần. 
+**Đặc điểm:** Kubeconfig gắn với AWS CLI profile; DB (RDS) trong VPC, app user có đủ quyền; storage EFS (RWX) gắn qua CSI sau khi có `efs_id`.
+
+### 4.2. DigitalOcean – `digitalocean/do_full_setup.sh`
+
+| Bước | Nội dung |
+|------|----------|
+| 0 | Kiểm tra công cụ (terraform, kubectl, jq), kiểm tra `DO_TOKEN` trong `.env`. |
+| 1 | **Terraform apply** trong `digitalocean/`: tạo DOKS, Managed PostgreSQL, DB + user; đọc output `db_host`, `db_port`, `db_password`, **kubeconfig (raw)**. |
+| — | Ghi kubeconfig ra file `digitalocean/kubeconfig-do`, **export KUBECONFIG** để mọi lệnh kubectl sau dùng cluster DO (không ghi đè `~/.kube/config`). |
+| 2 | **Apply manifest:** thay placeholder `REPLACE_WITH_DO_DB_HOST` và `REPLACE_WITH_DB_PASSWORD` trong `k8s-moodle.yaml` rồi `kubectl apply` (không có bước cài addon storage; DOKS đã có CSI block storage). |
+| **2.5** | **Grant schema public cho user DB:** nếu có `DO_DB_ADMIN_PASSWORD`, chạy Job một lần (image postgres:15-alpine) kết nối với user **doadmin** và chạy `GRANT ALL/CREATE ON SCHEMA public TO moodleuser`; nếu không có thì in hướng dẫn và thoát. |
+| 3 | Chờ pod Moodle Ready → **tạo config.php** (host/port từ Terraform, **dbport, sslmode=require, connect_timeout**) → `kubectl cp` vào pod. |
+| 4 | In thông tin Service (EXTERNAL-IP) để cập nhật DNS. |
+| 5 | Chown/chmod `moodledata` → chạy **install_database.php** (có bật debug tạm, ghi log; nếu lỗi thì grep và in đoạn cuối); sau khi thành công xóa dòng debug trong config. |
+
+**Đặc điểm:** Kubeconfig lấy từ Terraform (raw), dùng file riêng; DB là Managed PostgreSQL nên bắt buộc bước **grant schema public** và config **SSL + port**; không có bước cài addon hay scale CoreDNS.
+
+### 4.3. So sánh nhanh flow hai script
+
+| Hạng mục | AWS | DigitalOcean |
+|----------|-----|--------------|
+| **Kubeconfig** | `aws eks update-kubeconfig` → cập nhật default context | Terraform output raw → ghi file, `export KUBECONFIG=` |
+| **Sau Terraform** | Cài EFS CSI addon, sửa PV volumeHandle | Không addon; manifest chỉ thay host/password |
+| **Bước đặc thù** | Scale CoreDNS (tùy cluster) | **Grant schema public** cho user DB (bắt buộc) |
+| **config.php** | RDS: host, không bắt buộc port/SSL | Managed DB: **dbport**, **sslmode=require**, **connect_timeout** |
+| **DB password** | Lấy từ `.env` (MOODLE_DB_PASS) / Terraform | `moodleuser` từ Terraform output, `doadmin` từ DO API hoặc `DO_DB_ADMIN_PASSWORD` |
+| **Storage** | EFS → CSI driver → volumeHandle thay mỗi lần apply | Block Storage → StorageClass sẵn, không thay ID |
+| **Khi install lỗi** | In log trực tiếp | Ghi log file, grep từ khóa lỗi + in 100 dòng cuối, bật debug tạm |
+
+Sự khác biệt này phản ánh khác biệt kiến trúc (managed DB + SSL trên DO, RDS trong VPC trên AWS; EFS vs Block Storage) và giúp khi chuyển từ AWS sang DO hoặc ngược lại biết cần chỉnh script và config ở đâu.
+
+Chi tiết lỗi do khác biệt môi trường (schema public, SSL, password, kubeconfig) xem thêm: [docs/AWS-TO-DO-MIGRATION-ISSUES.md](docs/AWS-TO-DO-MIGRATION-ISSUES.md).
