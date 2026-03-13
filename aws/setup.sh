@@ -190,6 +190,9 @@ if [[ -n "${PROD_POD}" ]]; then
     --fullname="He thong E-learning HCMUT" \
     --shortname="HCMUT LMS" \
     --agree-license || echo "Production database may already be installed."
+
+  echo "Enabling Moodle dashboard..."
+  kubectl -n moodle-production exec "${PROD_POD}" -- runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
 fi
 
 echo
