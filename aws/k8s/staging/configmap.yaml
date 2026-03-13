@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: moodle-env
+  namespace: moodle-staging
+data:
+  MOODLE_WWWROOT: "https://staging-lms.ndcuong.online"
+  MOODLE_DB_HOST: "${MOODLE_DB_HOST}"
+  MOODLE_DB_NAME: "moodle_staging"
+  MOODLE_DB_USER: "${MOODLE_DB_USER}"
+  MOODLE_DB_TYPE: "pgsql"
+  MOODLE_SSL_PROXY: "true"

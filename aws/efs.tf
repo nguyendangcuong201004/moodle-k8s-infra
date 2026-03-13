@@ -41,6 +41,59 @@ resource "aws_efs_mount_target" "mt_2" {
   security_groups = [aws_security_group.efs_sg.id]
 }
 
+# EFS Access Points for environment isolation
+resource "aws_efs_access_point" "prod" {
+  file_system_id = aws_efs_file_system.moodle_efs.id
+
+  posix_user {
+    uid = 33 # www-data
+    gid = 33
+  }
+
+  root_directory {
+    path = "/prod/moodledata"
+    creation_info {
+      owner_uid   = 33
+      owner_gid   = 33
+      permissions = "0777"
+    }
+  }
+
+  tags = {
+    Name = "moodle-efs-prod"
+  }
+}
+
+resource "aws_efs_access_point" "staging" {
+  file_system_id = aws_efs_file_system.moodle_efs.id
+
+  posix_user {
+    uid = 33
+    gid = 33
+  }
+
+  root_directory {
+    path = "/staging/moodledata"
+    creation_info {
+      owner_uid   = 33
+      owner_gid   = 33
+      permissions = "0777"
+    }
+  }
+
+  tags = {
+    Name = "moodle-efs-staging"
+  }
+}
+
 output "efs_id" {
   value = aws_efs_file_system.moodle_efs.id
+}
+
+output "efs_access_point_prod_id" {
+  value = aws_efs_access_point.prod.id
+}
+
+output "efs_access_point_staging_id" {
+  value = aws_efs_access_point.staging.id
 }

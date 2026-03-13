@@ -65,8 +65,8 @@ resource "aws_eks_node_group" "moodle_nodes" {
   subnet_ids      = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 
   scaling_config {
-    desired_size = 2  # Chạy 2 máy
-    max_size     = 3
+    desired_size = 2
+    max_size     = 4 # Tăng lên 4 để có chỗ khi staging chạy cùng production
     min_size     = 1
   }
 
