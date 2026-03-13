@@ -2,7 +2,7 @@ resource "digitalocean_database_cluster" "moodle_db" {
   name       = "moodle-db-postgres"
   engine     = "pg"
   version    = "16"
-  size       = "db-s-1vcpu-1gb"
+  size       = "db-s-2vcpu-4gb"
   region     = var.region
   node_count = 1
 }
