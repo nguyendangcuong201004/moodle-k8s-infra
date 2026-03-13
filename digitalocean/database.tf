@@ -1,10 +1,10 @@
 resource "digitalocean_database_cluster" "moodle_db" {
-  name       = "moodle-db-postgres"
+  name       = "moodle-db-postgres-${terraform.workspace}-${random_integer.name_suffix.result}"
   engine     = "pg"
   version    = "16"
-  size       = "db-s-2vcpu-4gb"
+  size       = var.db_size
   region     = var.region
-  node_count = 1
+  node_count = var.db_node_count
 }
 
 resource "digitalocean_database_db" "moodle" {
