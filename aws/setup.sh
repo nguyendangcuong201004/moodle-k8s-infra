@@ -101,6 +101,27 @@ helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   -f "${K8S_DIR}/ingress-nginx/values.yaml"
 
 echo
+echo "=== Step 4.5: Open port 80/443 on EKS node security group (hostPort) ==="
+# Wait briefly for nodes to appear
+sleep 10
+NODE_SG=$(aws ec2 describe-instances \
+  --filters "Name=tag:eks:cluster-name,Values=${CLUSTER_NAME}" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' \
+  --output text 2>/dev/null || true)
+
+if [[ -n "${NODE_SG}" && "${NODE_SG}" != "None" ]]; then
+  echo "Adding port 80/443 rules to node security group ${NODE_SG}..."
+  aws ec2 authorize-security-group-ingress \
+    --group-id "${NODE_SG}" \
+    --ip-permissions \
+      'IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description="HTTP hostPort"}]' \
+      'IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description="HTTPS hostPort"}]' \
+    2>&1 || echo "Rules may already exist, continuing..."
+else
+  echo "WARNING: Could not find node security group, add port 80/443 manually."
+fi
+
+echo
 echo "=== Step 5: Scale CoreDNS down to 1 replica ==="
 kubectl -n kube-system scale deployment coredns --replicas=1
 kubectl -n kube-system rollout status deployment coredns || true
@@ -201,13 +222,21 @@ kubectl -n moodle-staging scale deployment/moodle --replicas=0
 echo
 echo "=== Step 10: Service information for Cloudflare DNS ==="
 echo
-echo "Nginx Ingress Controller LoadBalancer:"
-INGRESS_LB=$(kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "PENDING")
-echo "  LoadBalancer hostname: ${INGRESS_LB}"
+NODE_IPS=$(aws ec2 describe-instances \
+  --filters "Name=tag:eks:cluster-name,Values=${CLUSTER_NAME}" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[*].Instances[*].PublicIpAddress' \
+  --output text 2>/dev/null || true)
+
+echo "Node public IPs:"
+for IP in ${NODE_IPS}; do
+  echo "  ${IP}"
+done
 echo
-echo "Configure Cloudflare DNS:"
-echo "  CNAME  lms          -> ${INGRESS_LB}  (Proxied)"
-echo "  CNAME  staging-lms  -> ${INGRESS_LB}  (Proxied)"
+echo "Configure Cloudflare DNS (Type=A, both Proxied):"
+for IP in ${NODE_IPS}; do
+  echo "  A  lms          -> ${IP}  (Proxied)"
+  echo "  A  staging-lms  -> ${IP}  (Proxied)"
+done
 echo
 echo "=== AWS Moodle multi-environment deployment finished ==="
 echo "Production: https://lms.ndcuong.online"
