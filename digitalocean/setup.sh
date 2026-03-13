@@ -35,10 +35,8 @@ echo
 echo "=== Step 1: Terraform apply in ${DO_DIR} ==="
 cd "${DO_DIR}"
 
-if [[ ! -d ".terraform" ]]; then
-  echo "Running terraform init..."
-  terraform init
-fi
+echo "Running terraform init -upgrade to sync providers (including random)..."
+terraform init -upgrade
 
 echo "Running terraform apply (this may incur cost)..."
 export TF_IN_AUTOMATION=1
@@ -81,6 +79,14 @@ export MOODLE_WWWROOT="${SITE_URL}"
 
 echo "Applying manifests..."
 envsubst < "${K8S_YAML}" | kubectl apply -f -
+
+echo
+echo "=== (Optional) Apply HPA for Moodle if present ==="
+if [[ -f "hpa-moodle.yaml" ]]; then
+  kubectl apply -f "hpa-moodle.yaml" || echo "Warning: Failed to apply HPA (hpa-moodle.yaml). Check metrics-server and storage settings if you intend to use HPA."
+else
+  echo "hpa-moodle.yaml not found, skipping HPA apply."
+fi
 
 echo
 echo "=== Step 2.5: Grant schema public to DB user (required for Moodle install on DO Managed PostgreSQL) ==="

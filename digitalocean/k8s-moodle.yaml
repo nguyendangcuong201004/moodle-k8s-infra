@@ -31,6 +31,13 @@ spec:
         image: ndcuongdevops/moodle-lms:latest
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            cpu: "400m"
+            memory: "800Mi"
+          limits:
+            cpu: "1200m"
+            memory: "1800Mi"
         env:
         - name: MOODLE_DB_TYPE
           value: "pgsql"
