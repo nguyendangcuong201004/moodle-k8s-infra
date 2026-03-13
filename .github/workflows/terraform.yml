@@ -36,6 +36,8 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::717251295508:role/DevOpsRole
+          role-duration-seconds: 900
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -88,6 +90,8 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::717251295508:role/DevOpsRole
+          role-duration-seconds: 900
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
