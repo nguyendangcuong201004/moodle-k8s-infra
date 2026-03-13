@@ -19,6 +19,11 @@ spec:
   selector:
     matchLabels:
       app: moodle
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:
@@ -26,21 +31,38 @@ spec:
     spec:
       containers:
       - name: moodle
-        image: ndcuongdevops/moodle-lms:v1.0.6
+        image: ndcuongdevops/moodle-lms:latest
         ports:
         - containerPort: 80
         env:
+        - name: MOODLE_DB_TYPE
+          value: "pgsql"
         - name: MOODLE_DB_HOST
-          value: "REPLACE_WITH_DO_DB_HOST" # Thay bằng output db_host từ Terraform DigitalOcean
+          value: "${MOODLE_DB_HOST}"
         - name: MOODLE_DB_NAME
           value: "moodle"
         - name: MOODLE_DB_USER
-          value: "moodleuser"
+          value: "${MOODLE_DB_USER}"
         - name: MOODLE_DB_PASSWORD
-          value: "REPLACE_WITH_DB_PASSWORD"
+          value: "${MOODLE_DB_PASSWORD}"
+        - name: MOODLE_DB_PORT
+          value: "${MOODLE_DB_PORT}"
+        - name: MOODLE_DB_SSLMODE
+          value: "require"
+        - name: MOODLE_WWWROOT
+          value: "${MOODLE_WWWROOT}"
+        - name: MOODLE_SSL_PROXY
+          value: "true"
         volumeMounts:
         - name: moodle-data-volume
           mountPath: /var/www/moodledata
+        readinessProbe:
+          httpGet:
+            path: /login/index.php
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
       volumes:
       - name: moodle-data-volume
         persistentVolumeClaim:

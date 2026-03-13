@@ -17,6 +17,7 @@ echo "=== Step 0: Check environment and required tools ==="
 command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required"; exit 1; }
+command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required (install: apt-get install gettext)"; exit 1; }
 
 if [[ -z "${DO_TOKEN:-}" ]]; then
   echo "DO_TOKEN not set. Set it in .env."
@@ -66,16 +67,20 @@ export KUBECONFIG="${KUBECONFIG_FILE}"
 echo "Kubeconfig saved to ${KUBECONFIG_FILE}"
 
 echo
-echo "=== Step 2: Apply Kubernetes manifests with DB config ==="
+echo "=== Step 2: Apply Kubernetes manifests ==="
 if [[ ! -f "${K8S_YAML}" ]]; then
   echo "File ${K8S_YAML} not found. Aborting."
   exit 1
 fi
 
-echo "Applying manifests with DB config..."
-sed -e "s/REPLACE_WITH_DO_DB_HOST/${DB_HOST}/g" \
-    -e "s/REPLACE_WITH_DB_PASSWORD/${DB_PASS}/g" \
-    "${K8S_YAML}" | kubectl apply -f -
+export MOODLE_DB_HOST="${DB_HOST}"
+export MOODLE_DB_USER="${DB_USER}"
+export MOODLE_DB_PASSWORD="${DB_PASS}"
+export MOODLE_DB_PORT="${DB_PORT}"
+export MOODLE_WWWROOT="${SITE_URL}"
+
+echo "Applying manifests..."
+envsubst < "${K8S_YAML}" | kubectl apply -f -
 
 echo
 echo "=== Step 2.5: Grant schema public to DB user (required for Moodle install on DO Managed PostgreSQL) ==="
@@ -126,85 +131,41 @@ EOF
     kubectl logs "job/${GRANT_JOB}" 2>/dev/null || true
     kubectl delete job "${GRANT_JOB}" --ignore-not-found=true
     kubectl delete secret do-db-admin-grant --ignore-not-found=true
-    echo "Grant job failed. Check DO DB firewall / doadmin password. You can run the SQL manually (see message below)."
+    echo "Grant job failed. Check DO DB firewall / doadmin password."
     exit 1
   fi
 else
   echo "Could not get doadmin password. Moodle install will fail with 'permission denied for schema public'."
-  echo "  - Ensure DO_TOKEN has scope database:view_credentials, or set DO_DB_ADMIN_PASSWORD in .env (from Control Panel: Databases > cluster > Users > doadmin > show password)."
+  echo "  - Ensure DO_TOKEN has scope database:view_credentials, or set DO_DB_ADMIN_PASSWORD in .env."
   echo "  - Or run as doadmin: GRANT ALL ON SCHEMA public TO ${DB_USER}; GRANT CREATE ON SCHEMA public TO ${DB_USER};"
   exit 1
 fi
 
 echo
-echo "=== Step 3: Create config.php inside Moodle pod ==="
-echo "Waiting for Moodle pod to be ready..."
-if ! kubectl wait --for=condition=Ready pod -l app=moodle --timeout=300s >/dev/null 2>&1; then
-  echo "Moodle pod did not become Ready within timeout. Check 'kubectl get pods'."
-  exit 1
-fi
-
-MOODLE_POD=$(kubectl get pods -l app=moodle -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+echo "=== Step 3: Wait for Moodle pod and run database installation ==="
+echo "Waiting for Moodle pod to be Running (up to 5 min)..."
+MOODLE_POD=""
+for i in $(seq 1 60); do
+  MOODLE_POD=$(kubectl get pods -l app=moodle -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  if [[ -n "${MOODLE_POD}" ]]; then
+    POD_PHASE=$(kubectl get pod "${MOODLE_POD}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "${POD_PHASE}" == "Running" ]]; then
+      echo "Pod ${MOODLE_POD} is Running."
+      break
+    fi
+  fi
+  echo "Waiting... (${i}/60)"
+  sleep 5
+done
 if [[ -z "${MOODLE_POD}" ]]; then
-  echo "No pod found with label app=moodle after wait. Please check 'kubectl get pods'."
+  echo "No pod found with label app=moodle. Please check 'kubectl get pods'."
   exit 1
 fi
-TMP_CONFIG="$(mktemp /tmp/moodle-config.php.XXXXXX)"
-
-cat > "${TMP_CONFIG}" <<CONFIG_EOF
-<?php
-unset(\$CFG);
-global \$CFG;
-\$CFG = new stdClass();
-
-\$CFG->dbtype    = 'pgsql';
-\$CFG->dblibrary = 'native';
-\$CFG->dbhost    = '${DB_HOST}';
-\$CFG->dbname    = 'moodle';
-\$CFG->dbuser    = '${DB_USER}';
-\$CFG->dbpass    = '${DB_PASS}';
-\$CFG->prefix    = 'mdl_';
-\$CFG->dboptions = array (
-  'dbpersist' => 0,
-  'dbport' => '${DB_PORT}',
-  'dbsocket' => '',
-  'sslmode' => 'require',
-  'connect_timeout' => 30,
-);
-
-\$CFG->wwwroot   = '${SITE_URL}';
-\$CFG->sslproxy  = true;
-\$CFG->dataroot  = '/var/www/moodledata';
-\$CFG->admin     = '${ADMIN_USER}';
-\$CFG->directorypermissions = 02777;
-
-\$CFG->themedesignermode = 0;
-\$CFG->cachejs = 1;
-
-\$CFG->debug = E_ALL | E_STRICT;
-\$CFG->debugdisplay = 1;
-
-require_once(__DIR__ . '/lib/setup.php');
-CONFIG_EOF
-
-echo "Writing config.php to pod..."
-kubectl cp "${TMP_CONFIG}" "${MOODLE_POD}:/var/www/html/config.php"
-rm -f "${TMP_CONFIG}"
-
-kubectl exec "${MOODLE_POD}" -- chown www-data:www-data /var/www/html/config.php || true
-
-echo
-echo "=== Step 4: Service information for DNS update ==="
-kubectl get svc
-echo "Use the EXTERNAL-IP of the Moodle service to update DNS (e.g. Cloudflare)."
-
-echo
-echo "=== Step 5: Prepare permissions on /var/www/moodledata and run install_database.php ==="
 
 kubectl exec "${MOODLE_POD}" -- chown -R www-data:www-data /var/www/moodledata
 kubectl exec "${MOODLE_POD}" -- chmod -R 777 /var/www/moodledata
 
-echo "Running database installation..."
+echo "Running database installation (this takes 5-10 minutes, please wait)..."
 MOODLE_INSTALL_LOG=$(mktemp)
 if ! kubectl exec "${MOODLE_POD}" -- runuser -u www-data -- php -d display_errors=1 -d log_errors=1 admin/cli/install_database.php \
   --lang=en \
@@ -216,25 +177,34 @@ if ! kubectl exec "${MOODLE_POD}" -- runuser -u www-data -- php -d display_error
   --agree-license \
   > "${MOODLE_INSTALL_LOG}" 2>&1; then
   echo "Database installation failed."
-  echo "--- Lines that may contain the real DB error (SQLSTATE/ERROR/FATAL/cannot): ---"
+  echo "--- Lines that may contain the real DB error: ---"
   grep -i -E "SQLSTATE|ERROR|FATAL|cannot|read-only|aborted|permission|denied|refused" "${MOODLE_INSTALL_LOG}" || true
-  echo "--- Last 100 lines: ---"
-  tail -100 "${MOODLE_INSTALL_LOG}"
+  echo "--- Last 50 lines: ---"
+  tail -50 "${MOODLE_INSTALL_LOG}"
   rm -f "${MOODLE_INSTALL_LOG}"
   exit 1
 fi
 rm -f "${MOODLE_INSTALL_LOG}"
 echo "Database installation completed."
-kubectl exec "${MOODLE_POD}" -- sed -i '/CFG->debug = E_ALL/d' /var/www/html/config.php
-kubectl exec "${MOODLE_POD}" -- sed -i '/CFG->debugdisplay = 1/d' /var/www/html/config.php
+
+# Remove debug settings written during install
+kubectl exec "${MOODLE_POD}" -- sed -i '/CFG->debug = E_ALL/d' /var/www/html/config.php || true
+kubectl exec "${MOODLE_POD}" -- sed -i '/CFG->debugdisplay = 1/d' /var/www/html/config.php || true
+
+# Enable dashboard
+kubectl exec "${MOODLE_POD}" -- runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
+
+echo
+echo "=== Step 4: Service information for DNS update ==="
+kubectl get svc
+echo "Use the EXTERNAL-IP of the moodle-service LoadBalancer to update your DNS (e.g. Cloudflare A record)."
 
 echo
 echo "=== DigitalOcean Moodle deployment script finished ==="
 echo "Verify pods, services, and access Moodle via the configured domain."
 echo ""
-echo "To use kubectl with this DigitalOcean cluster (current shell still uses AWS):"
+echo "To use kubectl with this DigitalOcean cluster:"
 echo "  export KUBECONFIG=${DO_DIR}/kubeconfig-do"
 echo "To switch back to AWS:"
 echo "  unset KUBECONFIG"
 echo "  # or: aws eks update-kubeconfig --region <region> --name moodle-cluster"
-
