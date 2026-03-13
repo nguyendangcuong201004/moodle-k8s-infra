@@ -1,9 +1,12 @@
 controller:
+  kind: DaemonSet
+  hostPort:
+    enabled: true
+    ports:
+      http: 80
+      https: 443
   service:
-    type: LoadBalancer
-    annotations:
-      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    type: ClusterIP
   replicaCount: 1
   resources:
     requests:
@@ -11,3 +14,5 @@ controller:
       memory: 64Mi
     limits:
       memory: 128Mi
+  admissionWebhooks:
+    enabled: false

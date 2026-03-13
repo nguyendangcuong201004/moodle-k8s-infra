@@ -98,8 +98,7 @@ helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 2>/dev/nu
 helm repo update
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace \
-  -f "${K8S_DIR}/ingress-nginx/values.yaml" \
-  --wait --timeout 300s
+  -f "${K8S_DIR}/ingress-nginx/values.yaml"
 
 echo
 echo "=== Step 5: Scale CoreDNS down to 1 replica ==="

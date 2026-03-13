@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: moodle
-        image: ndcuongdevops/moodle-lms:${MOODLE_IMAGE_TAG:-latest}
+        image: ndcuongdevops/moodle-lms:latest
         ports:
         - containerPort: 80
         envFrom:
