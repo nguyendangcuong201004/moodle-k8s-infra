@@ -25,6 +25,8 @@ fi
 export TF_VAR_do_token="${DO_TOKEN}"
 
 SITE_URL="${MOODLE_WWWROOT:?Set MOODLE_WWWROOT in .env}"
+EXTERNAL_DNS_HOSTNAME="${SITE_URL#*://}"
+EXTERNAL_DNS_HOSTNAME="${EXTERNAL_DNS_HOSTNAME%%/*}"
 ADMIN_USER="${MOODLE_ADMIN_USER:?Set MOODLE_ADMIN_USER in .env}"
 ADMIN_PASS="${MOODLE_ADMIN_PASS:?Set MOODLE_ADMIN_PASS in .env}"
 ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:?Set MOODLE_ADMIN_EMAIL in .env}"
@@ -55,6 +57,9 @@ DB_CLUSTER_ID=$(echo "${TF_JSON}" | jq -r '.db_cluster_id.value')
 [[ -z "${DB_PASS}" || "${DB_PASS}" == "null" ]] && { echo "Missing db_password output."; exit 1; }
 [[ -z "${DB_CLUSTER_ID}" || "${DB_CLUSTER_ID}" == "null" ]] && { echo "Missing db_cluster_id output."; exit 1; }
 
+LB_NAME=$(echo "${TF_JSON}" | jq -r '.lb_name.value')
+[[ -z "${LB_NAME}" || "${LB_NAME}" == "null" ]] && { echo "Missing lb_name output."; exit 1; }
+
 KUBECONFIG_RAW=$(terraform output -raw "${CLUSTER_KUBECONFIG_OUTPUT_NAME}")
 [[ -z "${KUBECONFIG_RAW}" ]] && { echo "Missing kubeconfig output."; exit 1; }
 
@@ -73,7 +78,23 @@ fi
 echo "Applying manifests with DB config..."
 sed -e "s/REPLACE_WITH_DO_DB_HOST/${DB_HOST}/g" \
     -e "s/REPLACE_WITH_DB_PASSWORD/${DB_PASS}/g" \
+    -e "s/DO_LOADBALANCER_NAME_PLACEHOLDER/${LB_NAME}/g" \
+    -e "s/EXTERNAL_DNS_HOSTNAME_PLACEHOLDER/${EXTERNAL_DNS_HOSTNAME}/g" \
     "${K8S_YAML}" | kubectl apply -f -
+
+echo
+echo "=== (Optional) ExternalDNS ==="
+if [[ -n "${CF_API_TOKEN:-}" ]] && [[ -f "external-dns-cloudflare.yaml" ]]; then
+  kubectl create namespace external-dns --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic cloudflare-external-dns-api \
+    --from-literal=CF_API_TOKEN="${CF_API_TOKEN}" \
+    -n external-dns \
+    --dry-run=client -o yaml | kubectl apply -f -
+  sed "s/EXTERNAL_DNS_DOMAIN_PLACEHOLDER/${EXTERNAL_DNS_HOSTNAME}/g" external-dns-cloudflare.yaml | kubectl apply -f -
+  kubectl rollout restart deployment/external-dns -n external-dns --timeout=60s 2>/dev/null || true
+else
+  [[ -z "${CF_API_TOKEN:-}" ]] && echo "CF_API_TOKEN not set, skipping ExternalDNS."
+fi
 
 echo
 echo "=== (Optional) Apply HPA for Moodle if present ==="
@@ -200,9 +221,8 @@ rm -f "${TMP_CONFIG}"
 kubectl exec "${MOODLE_POD}" -- chown www-data:www-data /var/www/html/config.php || true
 
 echo
-echo "=== Step 4: Service information for DNS update ==="
+echo "=== Step 4: Services ==="
 kubectl get svc
-echo "Use the EXTERNAL-IP of the Moodle service to update DNS (e.g. Cloudflare)."
 
 echo
 echo "=== Step 5: Prepare permissions on /var/www/moodledata and run install_database.php ==="

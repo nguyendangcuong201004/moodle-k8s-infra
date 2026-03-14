@@ -20,7 +20,12 @@ resource "digitalocean_kubernetes_cluster" "moodle_cluster" {
 }
 
 output "kubeconfig" {
-  description = "Kubeconfig của cluster Moodle trên DigitalOcean"
+  description = "Kubeconfig for the Moodle cluster"
   value       = digitalocean_kubernetes_cluster.moodle_cluster.kube_config[0].raw_config
   sensitive   = true
+}
+
+output "lb_name" {
+  description = "Load balancer name for do-loadbalancer-name annotation"
+  value       = "moodle-lb-${terraform.workspace}-${random_integer.name_suffix.result}"
 }
