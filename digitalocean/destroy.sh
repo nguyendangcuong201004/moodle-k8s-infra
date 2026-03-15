@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
+# Usage:
+#   ./destroy.sh staging     — destroy the staging environment
+#   ./destroy.sh production  — destroy the production environment
+#   ./destroy.sh             — destroy the current default workspace (legacy)
 set -euo pipefail
+
+WORKSPACE="${1:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -f "${SCRIPT_DIR}/.env" ]]; then
@@ -10,8 +16,8 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 DO_DIR="${SCRIPT_DIR}/digitalocean"
-K8S_YAML="${DO_DIR}/k8s-moodle.yaml"
-KUBECONFIG_FILE="${DO_DIR}/kubeconfig-do"
+K8S_YAML="${DO_DIR}/k8s/moodle.yaml"
+KUBECONFIG_FILE="${DO_DIR}/kubeconfig-${WORKSPACE:-do}"
 
 echo "=== DigitalOcean destroy (${DO_DIR}) ==="
 command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; }
@@ -27,6 +33,16 @@ cd "${DO_DIR}"
 if [[ ! -d ".terraform" ]]; then
   echo "Running terraform init..."
   terraform init
+fi
+
+# Switch workspace if specified
+if [[ -n "${WORKSPACE}" ]]; then
+  if terraform workspace list | grep -q "^[* ]*${WORKSPACE}$"; then
+    terraform workspace select "${WORKSPACE}"
+  else
+    echo "Workspace '${WORKSPACE}' does not exist. Nothing to destroy."
+    exit 0
+  fi
 fi
 
 echo "=== Pre-destroy: best-effort cleanup of Kubernetes resources ==="

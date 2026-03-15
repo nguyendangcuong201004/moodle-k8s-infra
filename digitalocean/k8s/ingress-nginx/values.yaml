@@ -1,0 +1,14 @@
+controller:
+  replicaCount: 1
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/do-loadbalancer-name: "moodle-nginx-lb-${WORKSPACE}"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+  admissionWebhooks:
+    enabled: false

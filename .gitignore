@@ -8,6 +8,8 @@ crash.log
 .env
 
 kubeconfig-do
+kubeconfig-staging
+kubeconfig-production
 
 # k6 stress test outputs
 stress-test/results/

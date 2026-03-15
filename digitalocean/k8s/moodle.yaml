@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: moodle-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: do-block-storage
+  resources:
+    requests:
+      storage: ${MOODLE_PVC_SIZE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moodle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: moodle
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: moodle
+    spec:
+      containers:
+      - name: moodle
+        image: ndcuongdevops/moodle-lms:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: MOODLE_DB_TYPE
+          value: "pgsql"
+        - name: MOODLE_DB_HOST
+          value: "${MOODLE_DB_HOST}"
+        - name: MOODLE_DB_NAME
+          value: "${MOODLE_DB_NAME}"
+        - name: MOODLE_DB_USER
+          value: "${MOODLE_DB_USER}"
+        - name: MOODLE_DB_PASSWORD
+          value: "${MOODLE_DB_PASSWORD}"
+        - name: MOODLE_DB_PORT
+          value: "${MOODLE_DB_PORT}"
+        - name: MOODLE_DB_SSLMODE
+          value: "require"
+        - name: MOODLE_WWWROOT
+          value: "${MOODLE_WWWROOT}"
+        - name: MOODLE_SSL_PROXY
+          value: "true"
+        readinessProbe:
+          httpGet:
+            path: /login/index.php
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: moodle-data
+          mountPath: /var/www/moodledata
+      volumes:
+      - name: moodle-data
+        persistentVolumeClaim:
+          claimName: moodle-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: moodle-service
+spec:
+  selector:
+    app: moodle
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: moodle-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: "${MOODLE_INGRESS_HOST}"
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: moodle-service
+            port:
+              number: 80
