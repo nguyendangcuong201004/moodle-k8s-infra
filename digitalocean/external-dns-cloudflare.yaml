@@ -63,6 +63,7 @@ spec:
             - --domain-filter=EXTERNAL_DNS_DOMAIN_PLACEHOLDER
             - --provider=cloudflare
             - --cloudflare-proxied
+            - --log-level=debug
           envFrom:
             - secretRef:
                 name: cloudflare-external-dns-api
