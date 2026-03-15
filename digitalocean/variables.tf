@@ -1,23 +1,23 @@
 variable "node_pool_size" {
-  description = "Kích thước Droplet cho node pool Moodle (ví dụ: s-2vcpu-4gb)"
+  description = "Droplet size for node pool (e.g. s-2vcpu-4gb)"
   type        = string
   default     = "s-2vcpu-4gb"
 }
 
 variable "node_pool_count" {
-  description = "Số lượng node trong node pool Moodle"
+  description = "Number of nodes in node pool"
   type        = number
   default     = 2
 }
 
 variable "db_size" {
-  description = "Kích thước gói Managed PostgreSQL cho Moodle"
+  description = "Managed PostgreSQL plan size"
   type        = string
   default     = "db-s-2vcpu-4gb"
 }
 
 variable "db_node_count" {
-  description = "Số node trong cluster Managed PostgreSQL"
+  description = "Number of nodes in DB cluster"
   type        = number
   default     = 1
 }

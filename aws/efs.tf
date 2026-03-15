@@ -21,14 +21,13 @@ resource "aws_security_group" "efs_sg" {
 resource "aws_efs_file_system" "moodle_efs" {
   creation_token = "moodle-efs-token"
   performance_mode = "generalPurpose"
-  encrypted        = true # Bật mã hóa
-  
+  encrypted        = true
+
   tags = {
     Name = "Moodle EFS Storage"
   }
 }
 
-# EFS cần được cắm vào ít nhất 2 Subnet để các Node có thể kết nối.
 resource "aws_efs_mount_target" "mt_1" {
   file_system_id  = aws_efs_file_system.moodle_efs.id
   subnet_id       = aws_subnet.public_1.id

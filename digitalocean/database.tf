@@ -23,12 +23,12 @@ data "digitalocean_database_user" "moodle" {
 }
 
 output "db_cluster_id" {
-  description = "UUID của database cluster (dùng để gọi API lấy doadmin password)"
+  description = "DB cluster UUID (for API e.g. doadmin password)"
   value       = digitalocean_database_cluster.moodle_db.id
 }
 
 output "db_host" {
-  description = "Hostname private của database Moodle"
+  description = "Private hostname of Moodle DB"
   value       = digitalocean_database_cluster.moodle_db.private_host
 }
 
@@ -45,7 +45,7 @@ output "db_user" {
 }
 
 output "db_password" {
-  description = "Password tự sinh của user database Moodle trên DigitalOcean"
+  description = "Auto-generated DB user password"
   value       = data.digitalocean_database_user.moodle.password
   sensitive   = true
 }

@@ -3,24 +3,26 @@ set -euo pipefail
 
 # Helper to quickly configure kubectl for either:
 # - AWS EKS (using aws cli + .env AWS_* settings)
-# - DigitalOcean Kubernetes (using digitalocean/kubeconfig-do)
+# - DigitalOcean Kubernetes (using digitalocean/kubeconfig-<workspace>)
 #
 # Usage:
-#   ./use-kubectl.sh aws   # dùng cluster name mặc định
-#   ./use-kubectl.sh do
+#   ./use-kubectl.sh aws
+#   ./use-kubectl.sh do [staging|production]   # default: production
 
 if [[ $# -lt 1 ]]; then
   echo "Usage:"
   echo "  $0 aws   # use default or auto-detected EKS cluster"
-  echo "  $0 do"
+  echo "  $0 do [staging|production]"
   exit 1
 fi
 
 PROVIDER="$1"
+DO_WORKSPACE="${2:-production}"   # default production
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
-DO_KUBECONFIG="${SCRIPT_DIR}/digitalocean/kubeconfig-do"
+DO_DIR="${SCRIPT_DIR}/digitalocean"
+DO_KUBECONFIG="${DO_DIR}/kubeconfig-${DO_WORKSPACE}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Cannot find ${ENV_FILE}. Make sure you're in the correct repo root."
@@ -100,11 +102,15 @@ case "${PROVIDER}" in
     ;;
 
   do)
-    echo "Configuring kubectl for DigitalOcean Kubernetes..."
+    if [[ "${DO_WORKSPACE}" != "staging" && "${DO_WORKSPACE}" != "production" ]]; then
+      echo "DO workspace must be 'staging' or 'production'. Got: ${DO_WORKSPACE}"
+      exit 1
+    fi
+    echo "Configuring kubectl for DigitalOcean Kubernetes (${DO_WORKSPACE})..."
 
     if [[ ! -f "${DO_KUBECONFIG}" ]]; then
       echo "DigitalOcean kubeconfig not found at ${DO_KUBECONFIG}."
-      echo "Make sure you've created the cluster and kubeconfig-do file."
+      echo "Run: ./digitalocean/setup.sh ${DO_WORKSPACE}"
       exit 1
     fi
 
@@ -117,7 +123,7 @@ case "${PROVIDER}" in
     fi
 
     cp "${DO_KUBECONFIG}" "${HOME}/.kube/config"
-    echo "Copied ${DO_KUBECONFIG} to ${HOME}/.kube/config"
+    echo "Copied ${DO_KUBECONFIG} to ${HOME}/.kube/config (workspace: ${DO_WORKSPACE})"
     ;;
 
   *)

@@ -3,7 +3,7 @@
 Repository này chứa hai cách triển khai Moodle trên Kubernetes:
 
 - `aws/`: EKS + RDS + EFS trên AWS.
-- `digitalocean/`: DOKS + Managed PostgreSQL + Block Storage trên DigitalOcean.
+- `digitalocean/`: DOKS + Managed PostgreSQL + **Longhorn (RWX)** cho moodledata, config qua ConfigMap.
 
 README tập trung vào:
 
@@ -34,6 +34,7 @@ Các nhóm biến chính:
 - **DigitalOcean**
   - `DO_TOKEN` – API token dùng cho Terraform/DO API (secret).
   - `DO_DB_ADMIN_PASSWORD` (tùy chọn) – mật khẩu cho user `doadmin` nếu không đọc được qua API (secret).
+  - **Longhorn:** trước khi chạy `digitalocean/setup.sh`, cài Longhorn lên cluster: `kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.11.0/deploy/longhorn.yaml` (chờ pods Ready). Sau đó chạy setup.
 
 Ví dụ `.env` mẫu (chỉ là template, không dùng trực tiếp cho production):
 
@@ -142,7 +143,7 @@ flowchart LR
 
 ---
 
-## 2. Kiến trúc DigitalOcean (DOKS + Managed DB + Block Storage)
+## 2. Kiến trúc DigitalOcean (DOKS + Managed DB + Longhorn RWX)
 
 ### Thành phần chính
 
@@ -175,20 +176,16 @@ flowchart LR
     - `db_port`.
     - `db_name`.
     - `db_user`.
-- **Storage cho Moodle (Block Storage qua CSI)**
-  - Sử dụng **DigitalOcean Block Storage** thông qua CSI driver mặc định trên DOKS:
-    - StorageClass: `do-block-storage`.
-  - `PersistentVolumeClaim` `moodle-data-pvc`:
-    - `accessModes: ReadWriteOnce`.
-    - `storage: 50Gi`.
+- **Storage cho Moodle (Longhorn RWX)**  
+  Cài Longhorn lên cluster trước (một lần): `kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.11.0/deploy/longhorn.yaml`. Sau đó chạy setup. `StorageClass` `longhorn-rwx` + PVC 20Gi, `ReadWriteMany`.
 - **Kubernetes Manifests (digitalocean/k8s-moodle.yaml)**
-  - `PVC` `moodle-data-pvc` dùng `do-block-storage`.
+  - `StorageClass` `longhorn-rwx`, `PersistentVolumeClaim` `moodle-data-pvc` (RWX); `ConfigMap` `moodle-config` cho `config.php`.
   - `Deployment` Moodle:
     - Image: `ndcuongdevops/moodle-lms:v1.0.6`.
-    - Mount `/var/www/moodledata` từ PVC.
-    - Env DB (placeholder):
-      - `MOODLE_DB_HOST = "REPLACE_WITH_DO_DB_HOST"` (nên lấy từ output `db_host`).
-      - `MOODLE_DB_PASSWORD = "REPLACE_WITH_DB_PASSWORD"` (nên đồng bộ với `db_password` và dùng Secret).
+    - `replicas: 2`; `podAntiAffinity` để trải pod trên nhiều node.
+    - `securityContext`: `runAsUser: 33`, `runAsGroup: 33`.
+    - Mount `/var/www/moodledata` từ PVC Longhorn; mount ConfigMap tại `config.php`.
+    - Env DB (placeholder): `MOODLE_DB_HOST`, `MOODLE_DB_PASSWORD` (script thay từ Terraform output).
   - `Service` type `LoadBalancer` (DigitalOcean Load Balancer).
 
 ### Sơ đồ kiến trúc DigitalOcean (mô tả)
@@ -202,26 +199,25 @@ flowchart LR
       Node1[K8s Node 1]
       Node2[K8s Node 2]
     end
-    DOBlock[(Block Storage<br/>do-block-storage)]
+    Longhorn[(Longhorn<br/>moodledata RWX)]
     DODB[(Managed PostgreSQL)]
   end
 
   DOLB --> Node1
   DOLB --> Node2
 
-  Node1 -->|PVC RWO| DOBlock
+  Node1 -->|PVC RWX| Longhorn
+  Node2 -->|PVC RWX| Longhorn
 
   Node1 -->|5432| DODB
   Node2 -->|5432| DODB
 ```
 
-
-
 Đặc trưng (tóm tắt):
 
 - Cluster Kubernetes managed (DOKS).
 - Managed PostgreSQL + user app `moodleuser`.
-- Storage dùng Block Storage (`do-block-storage`, RWO) cho `moodledata`.
+- Storage dùng **Longhorn** (RWX) cho `moodledata`; **ConfigMap** cho `config.php` → mọi pod có cùng config và dữ liệu; setup.sh chạy một lần, pod mới không cần chạy lại.
 - **Mật khẩu DB trên DigitalOcean**
   - `moodleuser`: DO tự sinh, script đọc từ Terraform output `db_password`.
   - `doadmin`: script cố gắng đọc qua DO API bằng `DO_TOKEN`, fallback là biến `DO_DB_ADMIN_PASSWORD`.
@@ -248,8 +244,7 @@ flowchart LR
   - **AWS**:
     - Dùng **EFS** + CSI driver → `ReadWriteMany`, rất phù hợp multi-replica Moodle và chia sẻ file giữa node.
   - **DigitalOcean**:
-    - Dùng **Block Storage** với StorageClass `do-block-storage` → `ReadWriteOnce`.
-    - Đủ cho 1 replica hoặc workload ít yêu cầu share RWX; nếu cần giống EFS, phải bổ sung giải pháp khác (NFS server, 3rd-party RWX storage…).
+    - Dùng **Longhorn** → StorageClass + PVC `ReadWriteMany`; config qua **ConfigMap**. Cài Longhorn trước, rồi chạy setup một lần.
 - **Bảo mật thông tin nhạy cảm**
   - **AWS**: DB credentials đang xuất hiện trực tiếp trong Terraform & manifest.
   - **DigitalOcean**: mật khẩu DB đã được tách ra khỏi code (variable sensitive), nhưng manifest vẫn cần được refactor thêm để lấy từ K8s Secret.
@@ -282,14 +277,14 @@ flowchart LR
 | 0       | Kiểm tra công cụ (terraform, kubectl, jq), kiểm tra `DO_TOKEN` trong `.env`.                                                                                                                                                                    |
 | 1       | **Terraform apply** trong `digitalocean/`: tạo DOKS, Managed PostgreSQL, DB + user; đọc output `db_host`, `db_port`, `db_password`, **kubeconfig (raw)**.                                                                                       |
 | —       | Ghi kubeconfig ra file `digitalocean/kubeconfig-do`, **export KUBECONFIG** để mọi lệnh kubectl sau dùng cluster DO (không ghi đè `~/.kube/config`).                                                                                             |
-| 2       | **Apply manifest:** thay placeholder `REPLACE_WITH_DO_DB_HOST` và `REPLACE_WITH_DB_PASSWORD` trong `k8s-moodle.yaml` rồi `kubectl apply` (không có bước cài addon storage; DOKS đã có CSI block storage).                                       |
-| **2.5** | **Grant schema public cho user DB:** nếu có `DO_DB_ADMIN_PASSWORD`, chạy Job một lần (image postgres:15-alpine) kết nối với user **doadmin** và chạy `GRANT ALL/CREATE ON SCHEMA public TO moodleuser`; nếu không có thì in hướng dẫn và thoát. |
-| 3       | Chờ pod Moodle Ready → **tạo config.php** (host/port từ Terraform, **dbport, sslmode=require, connect_timeout**) → `kubectl cp` vào pod.                                                                                                        |
-| 4       | In thông tin Service (EXTERNAL-IP) để cập nhật DNS.                                                                                                                                                                                             |
-| 5       | Chown/chmod `moodledata` → chạy **install_database.php** (có bật debug tạm, ghi log; nếu lỗi thì grep và in đoạn cuối); sau khi thành công xóa dòng debug trong config.                                                                         |
-| —       | Xóa hạ tầng DO: chạy `digitalocean/destroy.sh` (gọi `terraform destroy` trong thư mục `digitalocean/`).                                                                                                                                        |
+| 2       | **Tạo ConfigMap** `moodle-config` từ nội dung `config.php` → **Apply manifest** (thay placeholder DB, LB) rồi `kubectl apply`. Mọi pod mount ConfigMap tại `/var/www/html/config.php`. |
+| **2.5** | **Grant schema public cho user DB:** Job một lần với **doadmin** chạy `GRANT ALL/CREATE ON SCHEMA public TO moodleuser`; nếu không có mật khẩu thì in hướng dẫn và thoát.                                                                                               |
+| 3       | Chờ pod Moodle Ready (dùng một pod bất kỳ cho bước một lần tiếp theo).                                                                                                                                                                                                  |
+| 4       | In thông tin Service (EXTERNAL-IP) để cập nhật DNS.                                                                                                                                                                                                                     |
+| 5       | **Một lần duy nhất:** chown/chmod `moodledata` trên một pod → chạy **install_database.php**; cập nhật ConfigMap (bỏ debug), rollout restart. Pod mới sau này tự có config + dữ liệu (Longhorn + ConfigMap). |
+| —       | Xóa: chạy `digitalocean/destroy.sh`. Gỡ Longhorn (tùy chọn): `kubectl delete -f https://raw.githubusercontent.com/longhorn/longhorn/v1.11.0/deploy/longhorn.yaml`. |
 
-**Đặc điểm:** Kubeconfig lấy từ Terraform (raw), dùng file riêng; DB là Managed PostgreSQL nên bắt buộc bước **grant schema public** và config **SSL + port**; không có bước cài addon hay scale CoreDNS.
+**Đặc điểm:** Kubeconfig từ Terraform; DB Managed PostgreSQL (grant schema + SSL); storage **Longhorn (RWX)** + **ConfigMap**; cài Longhorn trước khi chạy setup.
 
 ### 4.3. So sánh nhanh flow hai script
 
@@ -300,7 +295,7 @@ flowchart LR
 | **Bước đặc thù**    | Scale CoreDNS (tùy cluster)                            | **Grant schema public** cho user DB (bắt buộc)                                    |
 | **config.php**      | RDS: host, không bắt buộc port/SSL                     | Managed DB: **dbport**, **sslmode=require**, **connect_timeout**                  |
 | **DB password**     | Lấy từ `.env` (MOODLE_DB_PASS) / Terraform             | `moodleuser` từ Terraform output, `doadmin` từ DO API hoặc `DO_DB_ADMIN_PASSWORD` |
-| **Storage**         | EFS → CSI driver → volumeHandle thay mỗi lần apply     | Block Storage → StorageClass sẵn, không thay ID                                   |
+| **Storage**         | EFS → CSI driver → volumeHandle thay mỗi lần apply     | Longhorn → cài lên cluster trước; StorageClass + PVC RWX; ConfigMap cho config.php |
 | **Khi install lỗi** | In log trực tiếp                                       | Ghi log file, grep từ khóa lỗi + in 100 dòng cuối, bật debug tạm                  |
 
 Sự khác biệt này phản ánh khác biệt kiến trúc (managed DB + SSL trên DO, RDS trong VPC trên AWS; EFS vs Block Storage) và giúp khi chuyển từ AWS sang DO hoặc ngược lại biết cần chỉnh script và config ở đâu.

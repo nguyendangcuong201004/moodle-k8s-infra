@@ -67,6 +67,7 @@ if command -v kubectl >/dev/null 2>&1; then
       PV_NAME="$(kubectl get pvc moodle-data-pvc -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)"
       kubectl delete deployment moodle --ignore-not-found=true || true
       kubectl delete service moodle-service --ignore-not-found=true || true
+      kubectl delete configmap moodle-config --ignore-not-found=true || true
       kubectl delete pvc moodle-data-pvc --ignore-not-found=true || true
       kubectl delete secret do-db-admin-grant --ignore-not-found=true || true
       for job in $(kubectl get jobs -o name 2>/dev/null | grep '^job.batch/moodle-db-grant-schema-' || true); do
@@ -145,3 +146,4 @@ fi
 echo ""
 echo "=== Destroy complete ==="
 echo "If you had KUBECONFIG=${DO_DIR}/kubeconfig-do set, you may unset it: unset KUBECONFIG"
+echo "Longhorn volumes go with the PVC; to uninstall Longhorn: kubectl delete -f https://raw.githubusercontent.com/longhorn/longhorn/v1.11.0/deploy/longhorn.yaml"
