@@ -7,7 +7,6 @@ terraform {
   }
 }
 
-# Cấu hình AWS Provider
 provider "aws" {
   region = "ap-southeast-1" 
 }

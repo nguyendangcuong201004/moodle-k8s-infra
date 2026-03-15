@@ -10,7 +10,6 @@ resource "aws_security_group" "rds_sg" {
   description = "Allow inbound traffic for Postgres"
   vpc_id      = aws_vpc.moodle_vpc.id
 
-  # Cho phép các máy trong VPC vào cổng 5432
   ingress {
     from_port   = 5432
     to_port     = 5432
@@ -30,7 +29,7 @@ resource "aws_db_instance" "moodle_db" {
   identifier             = "moodle-db-postgres"
   engine                 = "postgres"
   engine_version         = "16.6"
-  instance_class         = "db.t3.micro" # Loại miễn phí
+  instance_class         = "db.t3.micro"
   allocated_storage      = 20
   storage_type           = "gp2"
   

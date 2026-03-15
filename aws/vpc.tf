@@ -1,6 +1,6 @@
 resource "aws_vpc" "moodle_vpc" {
-  cidr_block           = "10.0.0.0/16" # Dải IP mạng: 65,536 địa chỉ
-  enable_dns_hostnames = true          # Bắt buộc cho EKS
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
@@ -20,11 +20,11 @@ resource "aws_subnet" "public_1" {
   vpc_id                  = aws_vpc.moodle_vpc.id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = "ap-southeast-1a"
-  map_public_ip_on_launch = true # Tự cấp IP công khai
+  map_public_ip_on_launch = true
 
   tags = {
-    Name                        = "moodle-public-1"
-    "kubernetes.io/role/elb"    = "1" # Tag này để EKS biết đường tạo Load Balancer
+    Name                     = "moodle-public-1"
+    "kubernetes.io/role/elb"   = "1"
   }
 }
 
