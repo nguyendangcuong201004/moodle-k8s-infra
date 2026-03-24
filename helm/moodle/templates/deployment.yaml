@@ -54,6 +54,12 @@ spec:
               value: {{ .Values.moodle.wwwroot | quote }}
             - name: MOODLE_SSL_PROXY
               value: {{ .Values.moodle.sslProxy | quote }}
+            {{- if .Values.redis.enabled }}
+            - name: MOODLE_REDIS_HOST
+              value: {{ include "moodle.fullname" . }}-redis
+            - name: MOODLE_REDIS_PORT
+              value: "6379"
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ include "moodle.fullname" . }}-db

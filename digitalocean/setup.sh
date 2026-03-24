@@ -115,6 +115,43 @@ if ! kubectl get deployment metrics-server -n kube-system &>/dev/null; then
 fi
 
 echo
+echo "=== Step 1.7: Prometheus + Adapter (custom metrics for HPA) ==="
+# Prometheus collects metrics, prometheus-adapter exposes them to HPA
+if ! helm list -n monitoring -q 2>/dev/null | grep -q '^kube-prometheus-stack$'; then
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+  helm repo update
+  helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+    --namespace monitoring --create-namespace \
+    --set prometheus.prometheusSpec.retention=6h \
+    --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+    --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+    --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+    --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+    --set grafana.resources.requests.cpu=50m \
+    --set grafana.resources.requests.memory=128Mi \
+    --set grafana.resources.limits.cpu=200m \
+    --set grafana.resources.limits.memory=256Mi \
+    --set alertmanager.enabled=false \
+    --set nodeExporter.enabled=true \
+    --set kubeStateMetrics.enabled=true \
+    --wait --timeout 5m || echo "Prometheus install failed, continuing..."
+fi
+
+if ! helm list -n monitoring -q 2>/dev/null | grep -q '^prometheus-adapter$'; then
+  helm install prometheus-adapter prometheus-community/prometheus-adapter \
+    --namespace monitoring \
+    --set prometheus.url=http://kube-prometheus-stack-prometheus.monitoring.svc \
+    --set prometheus.port=9090 \
+    --set rules.default=false \
+    --set "rules.custom[0].seriesQuery=container_network_receive_bytes_total{namespace=\"moodle\"}" \
+    --set "rules.custom[0].resources.overrides.namespace.resource=namespace" \
+    --set "rules.custom[0].resources.overrides.pod.resource=pod" \
+    --set "rules.custom[0].name.as=http_requests_per_second" \
+    --set "rules.custom[0].metricsQuery=sum(rate(container_network_receive_bytes_total{namespace=\"moodle\",container=\"moodle\"}[2m])) by (pod) / 1024" \
+    --wait --timeout 3m || echo "Prometheus-adapter install failed, continuing..."
+fi
+
+echo
 echo "=== Step 2: Deploy Moodle via Helm ==="
 HELM_CHART="${SCRIPT_DIR}/helm/moodle"
 SIZE_PROFILE="${SIZE_PROFILE:-small}"

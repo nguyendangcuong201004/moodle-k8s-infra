@@ -25,6 +25,15 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- if .Values.autoscaling.customMetrics.enabled }}
+    - type: Pods
+      pods:
+        metric:
+          name: {{ .Values.autoscaling.customMetrics.metricName }}
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.autoscaling.customMetrics.targetValue | quote }}
+    {{- end }}
   behavior:
     scaleUp:
       stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleUp.stabilizationWindowSeconds }}
