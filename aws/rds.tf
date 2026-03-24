@@ -26,22 +26,22 @@ resource "aws_security_group" "rds_sg" {
 }
 
 resource "aws_db_instance" "moodle_db" {
-  identifier             = "moodle-db-postgres"
-  engine                 = "postgres"
-  engine_version         = "16.6"
-  instance_class         = "db.t3.micro"
-  allocated_storage      = 20
-  storage_type           = "gp2"
-  
-  db_name                = "moodle"
-  username               = "moodleuser"
-  password               = "Anhmeow123" 
+  identifier        = "moodle-db-postgres"
+  engine            = "postgres"
+  engine_version    = "16.6"
+  instance_class    = "db.t3.micro"
+  allocated_storage = 20
+  storage_type      = "gp2"
+
+  db_name  = "moodle"
+  username = "moodleuser"
+  password = "Anhmeow123"
 
   db_subnet_group_name   = aws_db_subnet_group.moodle_db_subnet_group.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
   publicly_accessible    = true
   skip_final_snapshot    = true
-  
+
   tags = { Name = "Moodle RDS" }
 }
 

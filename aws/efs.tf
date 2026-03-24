@@ -7,7 +7,7 @@ resource "aws_security_group" "efs_sg" {
     from_port   = 2049
     to_port     = 2049
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"] 
+    cidr_blocks = ["10.0.0.0/16"]
   }
 
   egress {
@@ -19,7 +19,7 @@ resource "aws_security_group" "efs_sg" {
 }
 
 resource "aws_efs_file_system" "moodle_efs" {
-  creation_token = "moodle-efs-token"
+  creation_token   = "moodle-efs-token"
   performance_mode = "generalPurpose"
   encrypted        = true
 

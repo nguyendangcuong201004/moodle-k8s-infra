@@ -24,7 +24,7 @@ resource "aws_subnet" "public_1" {
 
   tags = {
     Name                     = "moodle-public-1"
-    "kubernetes.io/role/elb"   = "1"
+    "kubernetes.io/role/elb" = "1"
   }
 }
 
@@ -35,8 +35,8 @@ resource "aws_subnet" "public_2" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                        = "moodle-public-2"
-    "kubernetes.io/role/elb"    = "1"
+    Name                     = "moodle-public-2"
+    "kubernetes.io/role/elb" = "1"
   }
 }
 
