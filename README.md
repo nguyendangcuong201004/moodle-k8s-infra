@@ -13,10 +13,10 @@ Per-Cloud (Terraform)              Cloud-Agnostic (Helm)
 │   (Longhorn)    │──┼──install──>│    values-medium.yaml│
 │                 │  │            │    values-large.yaml │
 │ aws/            │  │            │    templates/        │
-│   terraform     │──┘            │      deployment     │
-│   setup.sh      │               │      service, hpa   │
-│   (EFS CSI)     │               │      pvc, secret    │
-└─────────────────┘               │      ingress        │
+│   terraform     │──┘            │      deployment      │
+│   setup.sh      │               │      service, hpa    │
+│   (EFS CSI)     │               │      pvc, secret     │
+└─────────────────┘               │      ingress         │
                                   └──────────────────────┘
 ```
 
