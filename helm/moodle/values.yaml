@@ -61,6 +61,11 @@ autoscaling:
   maxReplicas: 4
   targetCPUUtilizationPercentage: 65
   targetMemoryUtilizationPercentage: 80
+  # Custom metrics via Prometheus (requires prometheus-adapter)
+  customMetrics:
+    enabled: false
+    metricName: http_requests_per_second
+    targetValue: "50"
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60
@@ -101,6 +106,32 @@ probes:
     initialDelaySeconds: 10
     periodSeconds: 30
     failureThreshold: 3
+
+# Moodle cron (background tasks: email, cleanup, scheduled tasks)
+# Runs as a separate CronJob so it doesn't compete with web pod CPU.
+cron:
+  enabled: true
+  schedule: "*/1 * * * *"
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Redis for Moodle session + application cache
+redis:
+  enabled: false
+  image: redis:7-alpine
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # Deployment strategy
 strategy:

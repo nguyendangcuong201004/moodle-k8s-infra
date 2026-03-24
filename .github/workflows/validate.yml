@@ -66,6 +66,7 @@ jobs:
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           soft_fail: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: kubesec (Helm templates)
         run: |

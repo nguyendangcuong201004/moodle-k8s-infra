@@ -7,6 +7,8 @@ crash.log
 
 .env
 
+promt.md
+
 kubeconfig-do
 kubeconfig-staging
 kubeconfig-production

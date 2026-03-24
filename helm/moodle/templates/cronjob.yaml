@@ -1,0 +1,82 @@
+{{- if .Values.cron.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "moodle.fullname" . }}-cron
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cron.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.cron.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "moodle.selectorLabels" . | nindent 12 }}
+            role: cron
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: moodle-cron
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - bash
+                - -c
+                - |
+                  {
+                  echo '<?php'
+                  echo 'unset($CFG); global $CFG; $CFG = new stdClass();'
+                  echo '$CFG->dbtype    = getenv("MOODLE_DB_TYPE");'
+                  echo '$CFG->dbhost    = getenv("MOODLE_DB_HOST");'
+                  echo '$CFG->dbname    = getenv("MOODLE_DB_NAME") ?: "moodle";'
+                  echo '$CFG->dbuser    = getenv("MOODLE_DB_USER") ?: "moodleuser";'
+                  echo '$CFG->dbpass    = getenv("MOODLE_DB_PASSWORD");'
+                  echo '$CFG->prefix    = "mdl_";'
+                  echo '$CFG->wwwroot   = getenv("MOODLE_WWWROOT");'
+                  echo '$CFG->dataroot  = "/var/www/moodledata";'
+                  echo '$CFG->directorypermissions = 0777;'
+                  echo '$CFG->sslproxy  = (getenv("MOODLE_SSL_PROXY") === "true");'
+                  echo '$CFG->dboptions = ["dbport" => getenv("MOODLE_DB_PORT") ?: ""];'
+                  echo '$_sslmode = getenv("MOODLE_DB_SSLMODE");'
+                  echo 'if ($_sslmode) { $CFG->dboptions["sslmode"] = $_sslmode; }'
+                  echo '// Redis cache configured in web pods only (cron has no HTTP sessions)'
+                  echo 'require_once(__DIR__ . "/lib/setup.php");'
+                  } > /var/www/html/config.php
+                  runuser -u www-data -- php admin/cli/cron.php --force
+              env:
+                - name: MOODLE_DB_TYPE
+                  value: {{ .Values.db.type | quote }}
+                - name: MOODLE_DB_HOST
+                  value: {{ .Values.db.host | quote }}
+                - name: MOODLE_DB_PORT
+                  value: {{ .Values.db.port | quote }}
+                - name: MOODLE_DB_NAME
+                  value: {{ .Values.db.name | quote }}
+                - name: MOODLE_DB_USER
+                  value: {{ .Values.db.user | quote }}
+                {{- if .Values.db.sslmode }}
+                - name: MOODLE_DB_SSLMODE
+                  value: {{ .Values.db.sslmode | quote }}
+                {{- end }}
+                - name: MOODLE_WWWROOT
+                  value: {{ .Values.moodle.wwwroot | quote }}
+                - name: MOODLE_SSL_PROXY
+                  value: {{ .Values.moodle.sslProxy | quote }}
+              envFrom:
+                - secretRef:
+                    name: {{ include "moodle.fullname" . }}-db
+              volumeMounts:
+                - name: moodledata
+                  mountPath: /var/www/moodledata
+              resources:
+                {{- toYaml .Values.cron.resources | nindent 16 }}
+          volumes:
+            - name: moodledata
+              persistentVolumeClaim:
+                claimName: {{ include "moodle.fullname" . }}-data
+{{- end }}

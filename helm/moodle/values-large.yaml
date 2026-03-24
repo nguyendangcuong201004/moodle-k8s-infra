@@ -14,6 +14,9 @@ resources:
 persistence:
   size: 50Gi
 
+redis:
+  enabled: true
+
 autoscaling:
   enabled: true
   minReplicas: 2
