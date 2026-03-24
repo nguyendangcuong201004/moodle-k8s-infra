@@ -1,0 +1,140 @@
+name: Validate Infrastructure
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [digitalocean, aws]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+        working-directory: ${{ matrix.directory }}
+
+      - name: Terraform init
+        run: terraform init -backend=false
+        working-directory: ${{ matrix.directory }}
+
+      - name: Terraform validate
+        run: terraform validate
+        working-directory: ${{ matrix.directory }}
+
+  terraform-plan:
+    name: Terraform Plan (DO)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: terraform-validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+
+      - name: Terraform init
+        run: terraform init -backend=false
+        working-directory: digitalocean
+        env:
+          TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+      - name: Terraform plan
+        run: terraform plan -no-color -input=false
+        working-directory: digitalocean
+        env:
+          TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tfsec (Terraform)
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true
+
+      - name: kubesec (Helm templates)
+        run: |
+          # Install tools
+          curl -sSL https://github.com/controlplaneio/kubesec/releases/download/v2.14.2/kubesec_linux_amd64.tar.gz | tar xz
+          chmod +x kubesec
+
+          # Install helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          # Render and scan each profile
+          for profile in small medium large; do
+            echo "=== Scanning profile: ${profile} ==="
+            helm template moodle helm/moodle/ \
+              -f "helm/moodle/values-${profile}.yaml" \
+              --set db.host=test --set db.password=test \
+              --set moodle.wwwroot=https://test.example.com \
+              > "/tmp/rendered-${profile}.yaml"
+
+            # kubesec scans individual resources, split by ---
+            csplit -z -f "/tmp/resource-${profile}-" "/tmp/rendered-${profile}.yaml" '/^---$/' '{*}' 2>/dev/null || true
+            for f in /tmp/resource-${profile}-*; do
+              [ -s "$f" ] || continue
+              kind=$(grep -m1 '^kind:' "$f" | awk '{print $2}')
+              [ "$kind" = "Deployment" ] && ./kubesec scan "$f" || true
+            done
+          done
+
+  helm-validate:
+    name: Helm Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint helm/moodle/
+
+      - name: Helm template (small)
+        run: |
+          helm template moodle helm/moodle/ \
+            -f helm/moodle/values-small.yaml \
+            --set db.host=test --set db.password=test \
+            --set moodle.wwwroot=https://test.example.com > /dev/null
+
+      - name: Helm template (medium)
+        run: |
+          helm template moodle helm/moodle/ \
+            -f helm/moodle/values-medium.yaml \
+            --set db.host=test --set db.password=test \
+            --set moodle.wwwroot=https://test.example.com > /dev/null
+
+      - name: Helm template (large)
+        run: |
+          helm template moodle helm/moodle/ \
+            -f helm/moodle/values-large.yaml \
+            --set db.host=test --set db.password=test \
+            --set moodle.wwwroot=https://test.example.com > /dev/null
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shell scripts
+        run: |
+          shellcheck -x digitalocean/setup.sh || true
+          shellcheck -x digitalocean/destroy.sh || true
+          shellcheck -x aws/setup.sh || true
+          shellcheck -x aws/destroy.sh || true
