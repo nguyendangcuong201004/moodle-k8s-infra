@@ -1,0 +1,29 @@
+# Size profile: Large (> 10,000 users)
+# Auto-scales 2→8 pods. Keeps 2 baseline for availability, scales aggressively.
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+persistence:
+  size: 50Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      podValue: 3
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      podValue: 1

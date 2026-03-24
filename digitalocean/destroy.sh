@@ -16,7 +16,6 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 
 DO_DIR="${SCRIPT_DIR}/digitalocean"
-K8S_YAML="${DO_DIR}/k8s/moodle.yaml"
 KUBECONFIG_FILE="${DO_DIR}/kubeconfig-${WORKSPACE:-do}"
 
 echo "=== DigitalOcean destroy (${DO_DIR}) ==="
@@ -54,53 +53,23 @@ if command -v kubectl >/dev/null 2>&1; then
       printf '%s' "${KUBECONFIG_RAW}" > "${KUBECONFIG_FILE}"
       export KUBECONFIG="${KUBECONFIG_FILE}"
 
-      if [[ -f "${K8S_YAML}" ]]; then
-        echo "Deleting objects from ${K8S_YAML} ..."
-        kubectl delete -f "${K8S_YAML}" --ignore-not-found=true || true
-      fi
+      # Uninstall Helm release (cleans up Deployment, Service, PVC, Secret, HPA, Ingress)
+      echo "Uninstalling Helm release 'moodle'..."
+      helm uninstall moodle -n moodle --wait 2>/dev/null || true
 
-      echo "Deleting known Moodle objects and transient setup objects..."
-      # Scale down first so mounted volumes are detached before PVC/PV deletion.
-      kubectl scale deployment moodle --replicas=0 --timeout=120s 2>/dev/null || true
-      kubectl wait --for=delete pod -l app=moodle --timeout=180s 2>/dev/null || true
-
-      PV_NAME="$(kubectl get pvc moodle-data-pvc -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)"
-      kubectl delete deployment moodle --ignore-not-found=true || true
-      kubectl delete service moodle-service --ignore-not-found=true || true
-      kubectl delete configmap moodle-config --ignore-not-found=true || true
-      kubectl delete pvc moodle-data-pvc --ignore-not-found=true || true
-      kubectl delete secret do-db-admin-grant --ignore-not-found=true || true
-      for job in $(kubectl get jobs -o name 2>/dev/null | grep '^job.batch/moodle-db-grant-schema-' || true); do
+      # Clean up leftover resources not managed by Helm
+      kubectl delete secret do-db-admin-grant --ignore-not-found=true 2>/dev/null || true
+      for job in $(kubectl get jobs -o name 2>/dev/null | grep '^job.batch/moodle-db-grant-' || true); do
         kubectl delete "${job}" --ignore-not-found=true || true
       done
+      kubectl delete namespace moodle --ignore-not-found=true 2>/dev/null || true
 
-      echo "Waiting for Service/PVC to terminate..."
-      for _ in {1..12}; do
-        svc_left="$(kubectl get svc moodle-service --ignore-not-found -o name 2>/dev/null || true)"
-        pvc_left="$(kubectl get pvc moodle-data-pvc --ignore-not-found -o name 2>/dev/null || true)"
-        if [[ -z "${svc_left}" && -z "${pvc_left}" ]]; then
-          break
-        fi
+      echo "Waiting for namespace cleanup..."
+      for _ in {1..24}; do
+        ns_left="$(kubectl get ns moodle --ignore-not-found -o name 2>/dev/null || true)"
+        [[ -z "${ns_left}" ]] && break
         sleep 5
       done
-
-      if [[ -n "${PV_NAME}" ]]; then
-        echo "Waiting for PV ${PV_NAME} cleanup (this triggers DO volume deletion)..."
-        for _ in {1..36}; do
-          pv_left="$(kubectl get pv "${PV_NAME}" --ignore-not-found -o name 2>/dev/null || true)"
-          if [[ -z "${pv_left}" ]]; then
-            break
-          fi
-          sleep 5
-        done
-
-        pv_left="$(kubectl get pv "${PV_NAME}" --ignore-not-found -o name 2>/dev/null || true)"
-        if [[ -n "${pv_left}" ]]; then
-          reclaim_policy="$(kubectl get pv "${PV_NAME}" -o jsonpath='{.spec.persistentVolumeReclaimPolicy}' 2>/dev/null || true)"
-          echo "PV ${PV_NAME} still exists with reclaimPolicy=${reclaim_policy:-unknown}."
-          echo "If reclaimPolicy is Retain, volume is intentionally kept by Kubernetes."
-        fi
-      fi
     else
       echo "Could not read kubeconfig output; skipping kubectl cleanup."
     fi

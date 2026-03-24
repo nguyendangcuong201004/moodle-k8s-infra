@@ -1,0 +1,110 @@
+# HCMUT Moodle LMS - Default Helm Values
+# Override per cloud via setup.sh --set flags or custom values files.
+
+replicaCount: 1
+
+image:
+  repository: ndcuongdevops/moodle-lms
+  tag: staging
+  pullPolicy: IfNotPresent
+
+# Database configuration (REQUIRED: host, password)
+db:
+  type: pgsql
+  host: ""
+  port: "5432"
+  name: moodle
+  user: moodleuser
+  password: ""
+  sslmode: require
+
+# Moodle application settings (REQUIRED: wwwroot)
+moodle:
+  wwwroot: ""
+  sslProxy: "true"
+
+# Persistent storage for /var/www/moodledata
+persistence:
+  storageClass: ""
+  size: 10Gi
+  accessMode: ReadWriteMany
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# Ingress configuration (disable for LoadBalancer-based setups)
+ingress:
+  enabled: true
+  className: nginx
+  host: ""
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1536Mi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      podValue: 2
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      podValue: 1
+
+# Pod anti-affinity to spread across nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - moodle
+          topologyKey: kubernetes.io/hostname
+
+# Health probes
+probes:
+  # startupProbe runs first; liveness+readiness are disabled until it succeeds.
+  # 40 × 15s = 600s (10 min) — enough for first-boot DB install.
+  startup:
+    path: /login/index.php
+    periodSeconds: 15
+    failureThreshold: 40
+  readiness:
+    path: /login/index.php
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 3
+  liveness:
+    path: /login/index.php
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    failureThreshold: 3
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1

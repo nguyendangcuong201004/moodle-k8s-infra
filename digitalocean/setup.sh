@@ -25,7 +25,7 @@ command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; 
 command -v kubectl   >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
 command -v helm      >/dev/null 2>&1 || { echo "helm is required (https://helm.sh/docs/intro/install/)"; exit 1; }
 command -v jq        >/dev/null 2>&1 || { echo "jq is required"; exit 1; }
-command -v envsubst  >/dev/null 2>&1 || { echo "envsubst is required (apt-get install gettext)"; exit 1; }
+
 
 if [[ -z "${DO_TOKEN:-}" ]]; then
   echo "DO_TOKEN not set. Set it in .env."
@@ -40,10 +40,8 @@ ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:?Set MOODLE_ADMIN_EMAIL in .env}"
 # Determine site URL and PVC size based on workspace
 if [[ "${WORKSPACE}" == "production" ]]; then
   SITE_URL="${MOODLE_WWWROOT:?Set MOODLE_WWWROOT in .env}"
-  MOODLE_PVC_SIZE="20Gi"
 else
   SITE_URL="${MOODLE_STAGING_WWWROOT:?Set MOODLE_STAGING_WWWROOT in .env}"
-  MOODLE_PVC_SIZE="5Gi"
 fi
 
 # Derive ingress host from URL (strip https:// or http://)
@@ -107,32 +105,37 @@ if ! kubectl get ns longhorn-system &>/dev/null; then
 fi
 
 echo
-echo "=== Step 2: Apply manifests ==="
-K8S_MANIFEST="${DO_DIR}/k8s/moodle.yaml"
-[[ ! -f "${K8S_MANIFEST}" ]] && { echo "${K8S_MANIFEST} not found."; exit 1; }
-
-export MOODLE_DB_HOST="${DB_HOST}"
-export MOODLE_DB_PORT="${DB_PORT}"
-export MOODLE_DB_NAME="${DB_NAME}"
-export MOODLE_DB_USER="${DB_USER}"
-export MOODLE_DB_PASSWORD="${DB_PASS}"
-export MOODLE_WWWROOT="${SITE_URL}"
-export DO_LOADBALANCER_NAME="${LB_NAME}"
-export EXTERNAL_DNS_HOSTNAME="${EXTERNAL_DNS_HOSTNAME}"
-echo "Applying manifests..."
-envsubst < "${K8S_MANIFEST}" | kubectl apply -f -
-
-status=""
-for _ in $(seq 1 36); do
-  status=$(kubectl get pvc moodle-data-pvc -o jsonpath='{.status.phase}' 2>/dev/null || true)
-  [[ "${status}" == "Bound" ]] && break
-  sleep 5
-done
-if [[ "${status:-}" != "Bound" ]]; then
-  echo "PVC not Bound in 180s. Check: kubectl get pvc moodle-data-pvc; kubectl -n longhorn-system get pods"
-  exit 1
+echo "=== Step 1.6: Metrics Server (required for HPA) ==="
+if ! kubectl get deployment metrics-server -n kube-system &>/dev/null; then
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  # DO kubelet uses self-signed certs — metrics-server needs --kubelet-insecure-tls
+  kubectl -n kube-system patch deployment metrics-server --type='json' \
+    -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+  kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s || true
 fi
-sleep 30
+
+echo
+echo "=== Step 2: Deploy Moodle via Helm ==="
+HELM_CHART="${SCRIPT_DIR}/helm/moodle"
+SIZE_PROFILE="${SIZE_PROFILE:-small}"
+[[ ! -d "${HELM_CHART}" ]] && { echo "Helm chart not found at ${HELM_CHART}"; exit 1; }
+
+echo "Deploying with size profile: ${SIZE_PROFILE}"
+helm upgrade --install moodle "${HELM_CHART}" \
+  --namespace moodle --create-namespace \
+  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  --set db.host="${DB_HOST}" \
+  --set db.port="${DB_PORT}" \
+  --set db.name="${DB_NAME}" \
+  --set db.user="${DB_USER}" \
+  --set db.password="${DB_PASS}" \
+  --set db.sslmode=require \
+  --set moodle.wwwroot="${SITE_URL}" \
+  --set persistence.storageClass=longhorn \
+  --set service.type=LoadBalancer \
+  --set ingress.enabled=false \
+  --set "service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}" \
+  --set "service.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}"
 
 echo
 echo "=== ExternalDNS ==="
@@ -146,12 +149,9 @@ if [[ -n "${CF_API_TOKEN:-}" ]] && [[ -f "k8s/external-dns-cloudflare.yaml" ]]; 
   kubectl rollout restart deployment/external-dns -n external-dns 2>/dev/null || true
 fi
 
-if [[ -f "k8s/hpa-moodle.yaml" ]]; then
-  kubectl apply -f "k8s/hpa-moodle.yaml" || true
-fi
-
 echo
 echo "=== Step 3: GRANT schema public to DB user ==="
+# GRANT runs in default namespace (not moodle namespace) for simplicity
 doadmin_pass="${DO_DB_ADMIN_PASSWORD:-}"
 if [[ -z "${doadmin_pass}" ]]; then
   echo "Fetching doadmin password from DigitalOcean API..."
@@ -214,20 +214,25 @@ else
 fi
 
 echo
-echo "=== Step 4: Wait for Moodle pods ==="
-if ! kubectl wait --for=condition=Ready pod -l app=moodle --timeout=600s >/dev/null 2>&1; then
-  echo "Moodle pod not Ready in 600s. Check: kubectl get pods; kubectl describe pvc moodle-data-pvc"
-  exit 1
-fi
-
-MOODLE_POD=$(kubectl get pods -l app=moodle -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-[[ -z "${MOODLE_POD}" ]] && { echo "No pod with label app=moodle."; exit 1; }
+echo "=== Step 4: Wait for Moodle pods (Running phase, not Ready — DB not installed yet) ==="
+for i in $(seq 1 60); do
+  MOODLE_POD=$(kubectl -n moodle get pods -l app=moodle -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  if [[ -n "${MOODLE_POD}" ]]; then
+    POD_PHASE=$(kubectl -n moodle get pod "${MOODLE_POD}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "${POD_PHASE}" == "Running" ]]; then
+      echo "Pod ${MOODLE_POD} is Running."
+      break
+    fi
+  fi
+  [[ $i -eq 60 ]] && { echo "Moodle pod not Running in 300s. Check: kubectl -n moodle get pods"; exit 1; }
+  sleep 5
+done
 
 echo
 echo "=== Step 4.5: Services ==="
-kubectl get svc
-LB_IP=$(kubectl get svc moodle-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-LB_HOST=$(kubectl get svc moodle-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+kubectl -n moodle get svc
+LB_IP=$(kubectl -n moodle get svc moodle -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+LB_HOST=$(kubectl -n moodle get svc moodle -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
 if [[ -n "${LB_IP}" ]]; then
   echo "DNS: Add A record ${EXTERNAL_DNS_HOSTNAME} -> ${LB_IP}"
 elif [[ -n "${LB_HOST}" ]]; then
@@ -236,50 +241,63 @@ fi
 
 echo
 echo "=== Step 5: moodledata permissions and install_database.php ==="
-MOODLE_POD=$(kubectl get pods -l app=moodle --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+MOODLE_POD=$(kubectl -n moodle get pods -l app=moodle --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 if [[ -z "${MOODLE_POD}" ]]; then
-  echo "No Running Moodle pod. Check: kubectl logs deployment/moodle --tail=100"
+  echo "No Running Moodle pod. Check: kubectl -n moodle logs deployment/moodle --tail=100"
   exit 1
 fi
 
-if ! kubectl exec "${MOODLE_POD}" -- chown -R www-data:www-data /var/www/moodledata; then
+if ! kubectl -n moodle exec "${MOODLE_POD}" -- chown -R www-data:www-data /var/www/moodledata; then
   echo "chown failed. Check: kubectl logs deployment/moodle --tail=80"
   exit 1
 fi
-kubectl exec "${MOODLE_POD}" -- chmod -R 777 /var/www/moodledata
+kubectl -n moodle exec "${MOODLE_POD}" -- chmod -R 777 /var/www/moodledata
 
-echo "Running database installation (5-10 min, please wait)..."
-INSTALL_LOG=$(mktemp)
-if kubectl exec "${MOODLE_POD}" -- \
-    runuser -u www-data -- php -d display_errors=1 -d log_errors=1 admin/cli/install_database.php \
-      --lang=en \
-      --adminuser="${ADMIN_USER}" \
-      --adminpass="${ADMIN_PASS}" \
-      --adminemail="${ADMIN_EMAIL}" \
-      --fullname="HCMUT E-learning" \
-      --shortname="HCMUT LMS" \
-      --agree-license \
-    > "${INSTALL_LOG}" 2>&1; then
-  echo "Database installed successfully."
-  kubectl exec "${MOODLE_POD}" -- \
-    runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
-elif grep -qi "already installed\|table.*exist\|Tables already exist\|Database tables already present" "${INSTALL_LOG}"; then
-  echo "Database already installed, skipping."
-else
-  echo "Database installation FAILED."
-  grep -i -E "SQLSTATE|ERROR|FATAL|cannot|permission|denied" "${INSTALL_LOG}" || true
-  tail -50 "${INSTALL_LOG}"
-  rm -f "${INSTALL_LOG}"
-  exit 1
-fi
-rm -f "${INSTALL_LOG}"
+echo "Running database installation in background (5-10 min, please wait)..."
+# Write install script into pod to avoid kubectl exec streaming timeout (DO API proxy drops long connections)
+kubectl -n moodle exec -i "${MOODLE_POD}" -- bash -c 'cat > /tmp/moodle-install.sh && chmod +x /tmp/moodle-install.sh' << EOF
+#!/bin/bash
+exec > /tmp/install.log 2>&1
+cd /var/www/html
+rm -f /tmp/install.exit
+runuser -u www-data -- php -d display_errors=1 admin/cli/install_database.php \
+  --lang=en \
+  --adminuser="${ADMIN_USER}" \
+  --adminpass="${ADMIN_PASS}" \
+  --adminemail="${ADMIN_EMAIL}" \
+  --fullname="HCMUT E-learning" \
+  --shortname="HCMUT LMS" \
+  --agree-license
+echo \$? > /tmp/install.exit
+EOF
+
+# Launch in background — kubectl exec returns immediately, no long-lived connection
+kubectl -n moodle exec "${MOODLE_POD}" -- bash -c "nohup /tmp/moodle-install.sh >/dev/null 2>&1 & disown"
+
+# Poll for DB install completion (max 15 min)
+# Check DB version — works even if pod restarts and /tmp/ is cleared
+for i in $(seq 1 60); do
+  sleep 15
+  # Re-resolve pod name in case of restart
+  CURRENT_POD=$(kubectl -n moodle get pods -l app=moodle --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "${MOODLE_POD}")
+  DB_VERSION=$(kubectl -n moodle exec "${CURRENT_POD}" -- runuser -u www-data -- php admin/cli/cfg.php --name=version 2>/dev/null || echo "")
+  if [[ "${DB_VERSION}" =~ ^[0-9] ]]; then
+    echo "Database installed successfully (version: ${DB_VERSION})."
+    break
+  fi
+  echo "[$(( i * 15 ))s] Installing..."
+  [[ $i -eq 60 ]] && { echo "Install timeout (15min). Check: kubectl -n moodle exec ${CURRENT_POD} -- cat /tmp/install.log"; exit 1; }
+done
+
+kubectl -n moodle exec "${MOODLE_POD}" -- \
+  runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
 
 echo
 echo "=== Setup complete [${WORKSPACE}] ==="
 echo ""
 echo "Site URL: ${SITE_URL}"
-FINAL_LB_IP=$(kubectl get svc moodle-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-FINAL_LB_HOST=$(kubectl get svc moodle-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+FINAL_LB_IP=$(kubectl -n moodle get svc moodle -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+FINAL_LB_HOST=$(kubectl -n moodle get svc moodle -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
 [[ -n "${FINAL_LB_IP}" ]] && echo "DNS: A ${EXTERNAL_DNS_HOSTNAME} -> ${FINAL_LB_IP}"
 [[ -n "${FINAL_LB_HOST}" ]] && echo "DNS: CNAME ${EXTERNAL_DNS_HOSTNAME} -> ${FINAL_LB_HOST}"
 echo ""

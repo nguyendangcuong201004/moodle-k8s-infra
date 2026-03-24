@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moodle.fullname" . }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "moodle.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: {{ .Values.strategy.type }}
+    {{- if eq .Values.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
+    {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "moodle.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: moodle
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: MOODLE_DB_TYPE
+              value: {{ .Values.db.type | quote }}
+            - name: MOODLE_DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: MOODLE_DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: MOODLE_DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: MOODLE_DB_USER
+              value: {{ .Values.db.user | quote }}
+            {{- if .Values.db.sslmode }}
+            - name: MOODLE_DB_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            {{- end }}
+            - name: MOODLE_WWWROOT
+              value: {{ .Values.moodle.wwwroot | quote }}
+            - name: MOODLE_SSL_PROXY
+              value: {{ .Values.moodle.sslProxy | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "moodle.fullname" . }}-db
+          volumeMounts:
+            - name: moodledata
+              mountPath: /var/www/moodledata
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+      volumes:
+        - name: moodledata
+          persistentVolumeClaim:
+            claimName: {{ include "moodle.fullname" . }}-data

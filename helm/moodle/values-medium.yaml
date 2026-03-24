@@ -1,0 +1,22 @@
+# Size profile: Medium (1,000 - 10,000 users)
+# Auto-scales 1→4 pods. Starts at 1, scales up under load, saves cost when idle.
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1500m
+    memory: 2Gi
+
+persistence:
+  size: 20Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 80

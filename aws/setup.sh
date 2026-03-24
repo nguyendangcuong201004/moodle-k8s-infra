@@ -127,33 +127,63 @@ kubectl -n kube-system scale deployment coredns --replicas=1
 kubectl -n kube-system rollout status deployment coredns || true
 
 echo
-echo "=== Step 6: Apply Kubernetes manifests ==="
+echo "=== Step 6: Deploy Moodle via Helm ==="
 
-# Prepare environment variables for envsubst
 export EFS_ID
 export EFS_AP_PROD_ID
-export EFS_AP_STAGING_ID
-export MOODLE_DB_HOST="${DB_HOST}"
-export MOODLE_DB_NAME="${MOODLE_DB_NAME:-moodle}"
-export MOODLE_DB_USER="${MOODLE_DB_USER:-moodleuser}"
-export MOODLE_DB_PASSWORD="${MOODLE_DB_PASS:?Set MOODLE_DB_PASS in .env}"
-export MOODLE_IMAGE_TAG="${MOODLE_IMAGE_TAG:-latest}"
+MOODLE_DB_HOST="${DB_HOST}"
+MOODLE_DB_USER="${MOODLE_DB_USER:-moodleuser}"
+MOODLE_DB_PASSWORD="${MOODLE_DB_PASS:?Set MOODLE_DB_PASS in .env}"
+SIZE_PROFILE="${SIZE_PROFILE:-small}"
+HELM_CHART="${SCRIPT_DIR}/helm/moodle"
 
-# Apply namespaces
-echo "Creating namespaces..."
-kubectl apply -f "${K8S_DIR}/base/"
+# Create EFS StorageClass if not exists
+kubectl apply -f - <<EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: "${EFS_ID}"
+  directoryPerms: "777"
+  uid: "33"
+  gid: "33"
+mountOptions:
+  - tls
+EOF
 
-# Apply production manifests
-echo "Applying production manifests..."
-for f in "${K8S_DIR}/production/"*.yaml; do
-  envsubst < "$f" | kubectl apply -f -
-done
+# Deploy production
+echo "Deploying production with size profile: ${SIZE_PROFILE}"
+helm upgrade --install moodle "${HELM_CHART}" \
+  --namespace moodle-production --create-namespace \
+  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  --set db.host="${MOODLE_DB_HOST}" \
+  --set db.name="${MOODLE_DB_NAME:-moodle}" \
+  --set db.user="${MOODLE_DB_USER}" \
+  --set db.password="${MOODLE_DB_PASSWORD}" \
+  --set db.sslmode="" \
+  --set moodle.wwwroot="${MOODLE_WWWROOT:?Set MOODLE_WWWROOT in .env}" \
+  --set persistence.storageClass=efs-sc \
+  --set ingress.enabled=true \
+  --set ingress.host="${MOODLE_WWWROOT#https://}"
 
-# Apply staging manifests
-echo "Applying staging manifests..."
-for f in "${K8S_DIR}/staging/"*.yaml; do
-  envsubst < "$f" | kubectl apply -f -
-done
+# Deploy staging (0 replicas by default)
+echo "Deploying staging..."
+helm upgrade --install moodle-staging "${HELM_CHART}" \
+  --namespace moodle-staging --create-namespace \
+  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  --set replicaCount=0 \
+  --set db.host="${MOODLE_DB_HOST}" \
+  --set db.name="${MOODLE_STAGING_DB_NAME:-moodle_staging}" \
+  --set db.user="${MOODLE_DB_USER}" \
+  --set db.password="${MOODLE_DB_PASSWORD}" \
+  --set db.sslmode="" \
+  --set moodle.wwwroot="${MOODLE_STAGING_WWWROOT:?Set MOODLE_STAGING_WWWROOT in .env}" \
+  --set persistence.storageClass=efs-sc \
+  --set ingress.enabled=true \
+  --set ingress.host="${MOODLE_STAGING_WWWROOT#https://}"
 
 echo
 echo "=== Step 7: Create staging database ==="
@@ -172,9 +202,7 @@ ADMIN_USER="${MOODLE_ADMIN_USER:?Set MOODLE_ADMIN_USER in .env}"
 ADMIN_PASS="${MOODLE_ADMIN_PASS:?Set MOODLE_ADMIN_PASS in .env}"
 ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:?Set MOODLE_ADMIN_EMAIL in .env}"
 
-echo "Waiting for production pod to be ready..."
-kubectl -n moodle-production wait --for=condition=ready pod -l app=moodle --timeout=300s || true
-
+echo "Waiting for production pod to be ready (Helm --wait should have handled this)..."
 PROD_POD=$(kubectl -n moodle-production get pods -l app=moodle -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 if [[ -n "${PROD_POD}" ]]; then
   echo "Setting up moodledata permissions..."
@@ -198,7 +226,7 @@ fi
 echo
 echo "=== Step 9: Setup staging environment ==="
 echo "Scaling staging to 1 replica for initial setup..."
-kubectl -n moodle-staging scale deployment/moodle --replicas=1
+kubectl -n moodle-staging scale deployment/moodle-staging --replicas=1
 
 echo "Waiting for staging pod to be ready..."
 kubectl -n moodle-staging wait --for=condition=ready pod -l app=moodle --timeout=300s || true
@@ -220,7 +248,7 @@ if [[ -n "${STG_POD}" ]]; then
 fi
 
 echo "Scaling staging back to 0 (on-demand)..."
-kubectl -n moodle-staging scale deployment/moodle --replicas=0
+kubectl -n moodle-staging scale deployment/moodle-staging --replicas=0
 
 echo
 echo "=== Step 10: Service information for Cloudflare DNS ==="

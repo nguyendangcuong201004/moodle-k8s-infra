@@ -1,0 +1,31 @@
+HCMUT Moodle LMS deployed successfully!
+
+Site URL: {{ .Values.moodle.wwwroot }}
+
+{{- if eq .Values.service.type "LoadBalancer" }}
+
+Service type: LoadBalancer
+Get the external IP:
+  kubectl get svc {{ include "moodle.fullname" . }} -n {{ .Release.Namespace }}
+{{- else }}
+
+Service type: {{ .Values.service.type }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress host: {{ .Values.ingress.host }}
+Ensure DNS points to your ingress controller's external IP.
+{{- end }}
+
+{{- if .Values.autoscaling.enabled }}
+
+HPA enabled: {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} pods
+  (scales at {{ .Values.autoscaling.targetCPUUtilizationPercentage }}% CPU)
+{{- else }}
+
+Replicas: {{ .Values.replicaCount }} (fixed, HPA disabled)
+{{- end }}
+
+To upgrade the image:
+  helm upgrade {{ .Release.Name }} ./helm/moodle --set image.tag=<new-tag> -n {{ .Release.Namespace }}
