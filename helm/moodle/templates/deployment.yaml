@@ -27,6 +27,16 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: fix-apache-config
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              sed -i 's|DocumentRoot.*|DocumentRoot /var/www/html/public|g' /etc/apache2/sites-available/*.conf
+              echo "Apache DocumentRoot fixed to /var/www/html/public"
       containers:
         - name: moodle
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
