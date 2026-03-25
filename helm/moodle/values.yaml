@@ -133,6 +133,19 @@ redis:
       cpu: 200m
       memory: 128Mi
 
+# Database backup (pg_dump via CronJob)
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  retentionDays: 7
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 # Deployment strategy
 strategy:
   type: RollingUpdate

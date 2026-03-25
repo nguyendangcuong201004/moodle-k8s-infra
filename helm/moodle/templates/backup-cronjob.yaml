@@ -1,0 +1,85 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "moodle.fullname" . }}-backup
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            {{- include "moodle.selectorLabels" . | nindent 12 }}
+            role: backup
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pg-backup
+              image: postgres:16-alpine
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_DIR="/backups"
+                  BACKUP_FILE="${BACKUP_DIR}/{{ .Values.db.name }}-${TIMESTAMP}.sql.gz"
+
+                  echo "Starting backup: ${BACKUP_FILE}"
+                  pg_dump \
+                    "host=${MOODLE_DB_HOST} port=${MOODLE_DB_PORT} dbname=${MOODLE_DB_NAME} user=${MOODLE_DB_USER} password=${MOODLE_DB_PASSWORD} sslmode={{ .Values.db.sslmode | default "require" }}" \
+                    --no-owner --no-privileges --format=plain \
+                    | gzip > "${BACKUP_FILE}"
+
+                  echo "Backup size: $(du -h "${BACKUP_FILE}" | cut -f1)"
+
+                  # Cleanup old backups (keep last N days)
+                  echo "Cleaning backups older than {{ .Values.backup.retentionDays }} days..."
+                  find "${BACKUP_DIR}" -name "*.sql.gz" -mtime +{{ .Values.backup.retentionDays }} -delete
+
+                  echo "Available backups:"
+                  ls -lh "${BACKUP_DIR}/"*.sql.gz 2>/dev/null || echo "  (none)"
+                  echo "Backup complete."
+              env:
+                - name: MOODLE_DB_HOST
+                  value: {{ .Values.db.host | quote }}
+                - name: MOODLE_DB_PORT
+                  value: {{ .Values.db.port | quote }}
+                - name: MOODLE_DB_NAME
+                  value: {{ .Values.db.name | quote }}
+                - name: MOODLE_DB_USER
+                  value: {{ .Values.db.user | quote }}
+              envFrom:
+                - secretRef:
+                    name: {{ include "moodle.fullname" . }}-db
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ include "moodle.fullname" . }}-backups
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "moodle.fullname" . }}-backups
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.persistence.storageClass | default "" | quote }}
+  resources:
+    requests:
+      storage: 5Gi
+{{- end }}
