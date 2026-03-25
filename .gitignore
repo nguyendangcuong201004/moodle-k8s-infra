@@ -15,3 +15,6 @@ kubeconfig-production
 
 # k6 stress test outputs
 stress-test/results/
+
+# Database backups
+backups/
