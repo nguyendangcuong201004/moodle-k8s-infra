@@ -117,9 +117,31 @@ fi
 echo
 echo "=== Step 1.7: Prometheus + Adapter (custom metrics for HPA) ==="
 # Prometheus collects metrics, prometheus-adapter exposes them to HPA
+
+# Grafana Cloud remote_write (optional — set GRAFANA_CLOUD_API_KEY in .env)
+GRAFANA_REMOTE_WRITE_ARGS=""
+if [[ -n "${GRAFANA_CLOUD_API_KEY:-}" ]]; then
+  echo "Grafana Cloud integration enabled — configuring remote_write..."
+  [[ -z "${GRAFANA_CLOUD_PROM_URL:-}" ]] && { echo "GRAFANA_CLOUD_PROM_URL required"; exit 1; }
+  [[ -z "${GRAFANA_CLOUD_PROM_USERNAME:-}" ]] && { echo "GRAFANA_CLOUD_PROM_USERNAME required"; exit 1; }
+  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic grafana-cloud-credentials \
+    --namespace monitoring \
+    --from-literal=username="${GRAFANA_CLOUD_PROM_USERNAME}" \
+    --from-literal=password="${GRAFANA_CLOUD_API_KEY}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  GRAFANA_REMOTE_WRITE_ARGS="\
+    --set prometheus.prometheusSpec.remoteWrite[0].url=${GRAFANA_CLOUD_PROM_URL} \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.username.name=grafana-cloud-credentials \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.username.key=username \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.password.name=grafana-cloud-credentials \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.password.key=password"
+fi
+
 if ! helm list -n monitoring -q 2>/dev/null | grep -q '^kube-prometheus-stack$'; then
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
   helm repo update
+  # shellcheck disable=SC2086
   helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
     --namespace monitoring --create-namespace \
     --set prometheus.prometheusSpec.retention=6h \
@@ -134,6 +156,7 @@ if ! helm list -n monitoring -q 2>/dev/null | grep -q '^kube-prometheus-stack$';
     --set alertmanager.enabled=false \
     --set nodeExporter.enabled=true \
     --set kubeStateMetrics.enabled=true \
+    ${GRAFANA_REMOTE_WRITE_ARGS} \
     --wait --timeout 5m || echo "Prometheus install failed, continuing..."
 fi
 
@@ -149,6 +172,27 @@ if ! helm list -n monitoring -q 2>/dev/null | grep -q '^prometheus-adapter$'; th
     --set "rules.custom[0].name.as=http_requests_per_second" \
     --set "rules.custom[0].metricsQuery=sum(rate(container_network_receive_bytes_total{namespace=\"moodle\",container=\"moodle\"}[2m])) by (pod) / 1024" \
     --wait --timeout 3m || echo "Prometheus-adapter install failed, continuing..."
+fi
+
+echo
+echo "=== Step 1.8: Provision Grafana Cloud dashboards ==="
+if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" && -n "${GRAFANA_CLOUD_URL:-}" ]]; then
+  DASHBOARDS_DIR="${SCRIPT_DIR}/grafana/dashboards"
+  if [[ -d "${DASHBOARDS_DIR}" ]]; then
+    for dashboard_file in "${DASHBOARDS_DIR}"/*.json; do
+      [ -f "${dashboard_file}" ] || continue
+      dashboard_name=$(basename "${dashboard_file}" .json)
+      echo "Importing dashboard: ${dashboard_name}"
+      PAYLOAD=$(jq -n --argjson dashboard "$(cat "${dashboard_file}")" \
+        '{dashboard: ($dashboard + {id: null}), overwrite: true, folderId: 0}')
+      curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
+        -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "${PAYLOAD}" || echo "  Failed to import ${dashboard_name}"
+    done
+  fi
+else
+  echo "Skipped (GRAFANA_CLOUD_TOKEN or GRAFANA_CLOUD_URL not set)"
 fi
 
 echo

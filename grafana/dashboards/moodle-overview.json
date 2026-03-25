@@ -1,0 +1,190 @@
+{
+  "title": "Moodle LMS Overview",
+  "description": "Moodle application metrics — pod resources, HPA scaling, CronJob health, and network traffic",
+  "tags": ["moodle", "kubernetes"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pod CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod)",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Pod Memory Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"moodle\",container=\"moodle\"}) by (pod)",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "HPA — Current vs Desired Replicas",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"moodle\"}",
+          "legendFormat": "Current Replicas",
+          "refId": "A"
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"moodle\"}",
+          "legendFormat": "Desired Replicas",
+          "refId": "B"
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"moodle\"}",
+          "legendFormat": "Min Replicas",
+          "refId": "C"
+        },
+        {
+          "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"moodle\"}",
+          "legendFormat": "Max Replicas",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "stacking": { "mode": "none" }
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Pod Restarts",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"moodle\"})",
+          "legendFormat": "Total Restarts",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "CronJob — Succeeded / Failed",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        {
+          "expr": "kube_job_status_succeeded{namespace=\"moodle\"}",
+          "legendFormat": "Succeeded",
+          "refId": "A"
+        },
+        {
+          "expr": "kube_job_status_failed{namespace=\"moodle\"}",
+          "legendFormat": "Failed",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never"
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Network I/O (Receive)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(container_network_receive_bytes_total{namespace=\"moodle\"}[5m])) by (pod)",
+          "legendFormat": "{{ pod }} — receive",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"moodle\"}[5m])) by (pod)",
+          "legendFormat": "{{ pod }} — transmit",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
