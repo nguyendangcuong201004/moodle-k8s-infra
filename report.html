@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Do an - Ha tang Kubernetes da dam may cho Moodle LMS - HCMUT</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-card: #1c2128;
+    --border: #30363d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-purple: #bc8cff;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --accent-cyan: #39d2c0;
+    --accent-pink: #f778ba;
+    --gradient-1: linear-gradient(135deg, #58a6ff 0%, #bc8cff 100%);
+    --gradient-2: linear-gradient(135deg, #3fb950 0%, #39d2c0 100%);
+    --gradient-3: linear-gradient(135deg, #d29922 0%, #f85149 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(88,166,255,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 70% 50%, rgba(188,140,255,0.06) 0%, transparent 50%);
+    animation: float 20s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(-20px, 20px); }
+  }
+
+  .hero-content { position: relative; z-index: 1; max-width: 900px; }
+
+  .university-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.2rem;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.2);
+    border-radius: 50px;
+    font-size: 0.85rem;
+    color: var(--accent-blue);
+    margin-bottom: 2rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .hero h1 {
+    font-size: 3.2rem;
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 1.5rem;
+    background: var(--gradient-1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero .subtitle {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    font-weight: 300;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+  }
+
+  .hero-meta-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .hero-meta-item .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .hero-meta-item .value { font-size: 1rem; color: var(--text-primary); font-weight: 500; }
+
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13,17,23,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+  }
+
+  nav ul {
+    display: flex;
+    list-style: none;
+    gap: 0;
+    max-width: 1200px;
+    margin: 0 auto;
+    overflow-x: auto;
+  }
+
+  nav a {
+    display: block;
+    padding: 1rem 1.2rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  nav a:hover { color: var(--text-primary); border-bottom-color: var(--accent-blue); }
+
+  section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 5rem 2rem;
+  }
+
+  .section-header { margin-bottom: 3rem; }
+
+  .section-number {
+    font-size: 0.8rem;
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .section-header h2 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+  }
+
+  .section-header p {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    max-width: 700px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.8rem;
+    transition: all 0.3s;
+  }
+
+  .card:hover {
+    border-color: rgba(88,166,255,0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  }
+
+  .card-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    margin-bottom: 1rem;
+  }
+
+  .card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+  .card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; }
+
+  .arch-diagram {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    overflow-x: auto;
+    margin: 2rem 0;
+  }
+
+  .arch-diagram pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-cyan);
+    line-height: 1.5;
+    white-space: pre;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  thead { background: var(--bg-tertiary); }
+
+  th {
+    padding: 0.9rem 1.2rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 0.8rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(88,166,255,0.03); }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-tertiary);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: var(--accent-cyan);
+  }
+
+  pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: var(--gradient-1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.3rem;
+  }
+
+  .cloud-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  @media (max-width: 768px) {
+    .cloud-cards { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .cloud-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cloud-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+
+  .cloud-card.do::before { background: var(--gradient-1); }
+  .cloud-card.aws::before { background: var(--gradient-3); }
+  .cloud-card.azure::before { background: var(--gradient-2); }
+
+  .cloud-card h3 { font-size: 1.3rem; margin-bottom: 1rem; }
+  .cloud-card .cloud-detail { font-size: 0.85rem; color: var(--text-secondary); margin: 0.4rem 0; }
+  .cloud-card .cloud-detail strong { color: var(--text-primary); }
+
+  .badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-green { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+  .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+  .badge-purple { background: rgba(188,140,255,0.15); color: var(--accent-purple); }
+  .badge-orange { background: rgba(210,153,34,0.15); color: var(--accent-orange); }
+
+  .timeline { position: relative; padding-left: 2rem; margin: 2rem 0; }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+    padding-left: 1.5rem;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -2rem;
+    top: 0.5rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    border: 2px solid var(--bg-primary);
+  }
+
+  .timeline-date { font-size: 0.8rem; color: var(--accent-blue); font-weight: 600; }
+  .timeline-title { font-size: 1rem; font-weight: 600; margin: 0.2rem 0; }
+  .timeline-desc { font-size: 0.85rem; color: var(--text-secondary); }
+
+  .flow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 2rem 0;
+    align-items: center;
+  }
+
+  .flow-step {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    min-width: 140px;
+    flex: 1;
+  }
+
+  .flow-step .step-num {
+    font-size: 0.7rem;
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+
+  .flow-step .step-name { font-size: 0.85rem; font-weight: 600; margin-top: 0.3rem; }
+  .flow-step .step-time { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem; }
+  .flow-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+  footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .tech-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    margin: 1.5rem 0;
+  }
+
+  .tech-tag {
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-content">
+    <div class="university-badge">Truong Dai hoc Bach Khoa - DHQG TP.HCM</div>
+    <h1>Ha tang Kubernetes da dam may cho he thong Moodle LMS</h1>
+    <p class="subtitle">Trien khai da dam may voi tu dong mo rong, giam sat toan dien va khoi phuc tham hoa cho he thong E-learning HCMUT</p>
+    <div class="hero-meta">
+      <div class="hero-meta-item">
+        <span class="label">Sinh vien</span>
+        <span class="value">Nguyen Dang Cuong</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">MSSV</span>
+        <span class="value">2210xxx</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">Nha cung cap</span>
+        <span class="value">3 Dam may</span>
+      </div>
+      <div class="hero-meta-item">
+        <span class="label">Nam</span>
+        <span class="value">2026</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <ul>
+    <li><a href="#overview">Tong quan</a></li>
+    <li><a href="#architecture">Kien truc</a></li>
+    <li><a href="#multicloud">Da dam may</a></li>
+    <li><a href="#scaling">Tu dong mo rong</a></li>
+    <li><a href="#monitoring">Giam sat</a></li>
+    <li><a href="#backup">Sao luu</a></li>
+    <li><a href="#cicd">CI/CD</a></li>
+    <li><a href="#stress">Kiem thu tai</a></li>
+    <li><a href="#timeline">Tien trinh</a></li>
+    <li><a href="#tech">Cong nghe</a></li>
+  </ul>
+</nav>
+
+<!-- TONG QUAN -->
+<section id="overview">
+  <div class="section-header">
+    <div class="section-number">01 — Tong quan</div>
+    <h2>Tong quan do an</h2>
+    <p>Giai phap ha tang Kubernetes cap san xuat, khong phu thuoc nha cung cap dam may, trien khai Moodle LMS cua HCMUT voi kha nang tu dong mo rong, giam sat toan dien va khoi phuc tham hoa.</p>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value">3</div>
+      <div class="stat-label">Nha cung cap dam may</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">9</div>
+      <div class="stat-label">Helm Template</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">3</div>
+      <div class="stat-label">Cau hinh quy mo</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">6</div>
+      <div class="stat-label">CI/CD Job</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">900+</div>
+      <div class="stat-label">Dong Terraform</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">443</div>
+      <div class="stat-label">Dong Helm</div>
+    </div>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-icon" style="background:rgba(88,166,255,0.1)">&#9729;</div>
+      <h3>Khong phu thuoc dam may</h3>
+      <p>Trien khai Moodle dong nhat tren DigitalOcean, AWS hoac Azure bang mot Helm chart duy nhat, ket hop Terraform rieng cho tung dam may.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background:rgba(63,185,80,0.1)">&#9889;</div>
+      <h3>Tu dong mo rong</h3>
+      <p>Horizontal Pod Autoscaler tu dong scale tu 1 den 8 pod dua tren chi so CPU va Memory voi nguong cau hinh linh hoat.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background:rgba(188,140,255,0.1)">&#128202;</div>
+      <h3>Giam sat toan dien</h3>
+      <p>Thu thap metrics voi Prometheus, truc quan hoa bang Grafana Cloud, va chi so tuy chinh qua prometheus-adapter cho HPA thong minh.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background:rgba(210,153,34,0.1)">&#128190;</div>
+      <h3>Khoi phuc tham hoa</h3>
+      <p>Sao luu co so du lieu tu dong hang ngay bang CronJob, khoi phuc theo thoi diem, ho tro chuyen doi giua cac dam may.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background:rgba(248,81,73,0.1)">&#128296;</div>
+      <h3>CI/CD Pipeline</h3>
+      <p>GitHub Actions voi kiem tra Terraform, Helm lint, quet bao mat (tfsec, kubesec), va ShellCheck tu dong cho moi thay doi.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background:rgba(57,210,192,0.1)">&#128640;</div>
+      <h3>Kiem thu tai</h3>
+      <p>Framework k6 voi kiem tra dung luong tu dong tu 20 den 400 nguoi dung dong thoi, do luong hieu nang va nguong SLA.</p>
+    </div>
+  </div>
+</section>
+
+<!-- KIEN TRUC -->
+<section id="architecture">
+  <div class="section-header">
+    <div class="section-number">02 — Kien truc</div>
+    <h2>Kien truc hai tang</h2>
+    <p>Tach biet ro rang giua ha tang dam may (Terraform) va trien khai ung dung (Helm) khong phu thuoc nha cung cap.</p>
+  </div>
+
+  <div class="arch-diagram">
+<pre>
+ Tang dam may (Terraform)                        Tang ung dung (Helm - khong phu thuoc dam may)
+ ┌──────────────────────────┐                   ┌──────────────────────────────────┐
+ │                          │                   │  helm/moodle/                    │
+ │  digitalocean/           │                   │  ├── deployment.yaml             │
+ │  ├── kubernetes.tf       │     helm install  │  ├── service.yaml                │
+ │  ├── database.tf         │ ──────────────>   │  ├── ingress.yaml                │
+ │  └── setup.sh            │                   │  ├── hpa.yaml (Tu dong mo rong)  │
+ │                          │                   │  ├── pvc.yaml (Luu tru)          │
+ │  aws/                    │     helm install  │  ├── redis.yaml (Bo nho dem)     │
+ │  ├── eks.tf, vpc.tf      │ ──────────────>   │  ├── cronjob.yaml (Tac vu nen)   │
+ │  ├── rds.tf, efs.tf      │                   │  ├── backup-cronjob.yaml         │
+ │  └── setup.sh            │                   │  └── secret.yaml                 │
+ │                          │                   │                                  │
+ │  azure/                  │     helm install  │  values-small.yaml   (&lt; 1K users)│
+ │  ├── aks.tf, network.tf  │ ──────────────>   │  values-medium.yaml (1K-10K)     │
+ │  ├── database.tf         │                   │  values-large.yaml  (&gt; 10K)      │
+ │  └── setup.sh            │                   │                                  │
+ └──────────────────────────┘                   └──────────────────────────────────┘
+</pre>
+  </div>
+
+  <div class="arch-diagram">
+<pre>
+ ┌─────────────── Kubernetes Cluster ──────────────────────────────────────────┐
+ │                                                                             │
+ │  ┌─── ingress-nginx ───┐    ┌─── namespace: moodle ─────────────────────┐  │
+ │  │  LoadBalancer:80/443 │───>│  Moodle Pods (1-8 ban sao qua HPA)       │  │
+ │  │  IP cong khai        │    │  ├── Init: sua cau hinh Apache           │  │
+ │  └──────────────────────┘    │  ├── Container: moodle-lms               │  │
+ │                               │  └── Volume: moodledata (PVC chia se)   │  │
+ │  ┌─── giam sat ──────────┐   │                                          │  │
+ │  │  Prometheus           │   │  Redis (tuy chon, medium/large)          │  │
+ │  │  Grafana              │   │  CronJob (moi 1 phut)                    │  │
+ │  │  prometheus-adapter   │   │  Sao luu CronJob (hang ngay 2 gio sang)  │  │
+ │  │  kube-state-metrics   │   └──────────────────────────────────────────┘  │
+ │  │  node-exporter        │                                                  │
+ │  └───────────────────────┘   ┌─── Co so du lieu quan ly ────────────────┐  │
+ │                               │  PostgreSQL 16 (quan ly boi dam may)     │  │
+ │                               │  Ket noi rieng (VNet/VPC)                │  │
+ │                               └─────────────────────────────────────────┘  │
+ └─────────────────────────────────────────────────────────────────────────────┘
+              ↑                              ↑
+         Cloudflare DNS              Grafana Cloud
+    (HTTPS + CDN + Chong DDoS)    (Luu tru metrics tu xa)
+</pre>
+  </div>
+</section>
+
+<!-- DA DAM MAY -->
+<section id="multicloud">
+  <div class="section-header">
+    <div class="section-number">03 — Da dam may</div>
+    <h2>Ho tro da nha cung cap</h2>
+    <p>Trien khai tren bat ky dam may nao voi hanh vi ung dung dong nhat. Chi phan ha tang la khac nhau.</p>
+  </div>
+
+  <div class="cloud-cards">
+    <div class="cloud-card do">
+      <h3>DigitalOcean</h3>
+      <span class="badge badge-green">Chinh</span>
+      <div class="cloud-detail"><strong>K8s:</strong> DOKS (Quan ly)</div>
+      <div class="cloud-detail"><strong>CSDL:</strong> PostgreSQL 16 quan ly</div>
+      <div class="cloud-detail"><strong>Luu tru:</strong> Longhorn (RWX)</div>
+      <div class="cloud-detail"><strong>Can bang tai:</strong> DO Load Balancer</div>
+      <div class="cloud-detail"><strong>Tin dung:</strong> $200 / 60 ngay</div>
+      <div class="cloud-detail"><strong>Thoi gian:</strong> ~25 phut</div>
+    </div>
+    <div class="cloud-card aws">
+      <h3>AWS</h3>
+      <span class="badge badge-orange">Da thu nghiem</span>
+      <div class="cloud-detail"><strong>K8s:</strong> EKS (Quan ly)</div>
+      <div class="cloud-detail"><strong>CSDL:</strong> RDS PostgreSQL 16</div>
+      <div class="cloud-detail"><strong>Luu tru:</strong> EFS + CSI Driver</div>
+      <div class="cloud-detail"><strong>Can bang tai:</strong> NLB / Ingress Nginx</div>
+      <div class="cloud-detail"><strong>Tin dung:</strong> $300 / 12 thang</div>
+      <div class="cloud-detail"><strong>Thoi gian:</strong> ~40 phut</div>
+    </div>
+    <div class="cloud-card azure">
+      <h3>Azure</h3>
+      <span class="badge badge-blue">Da xac nhan</span>
+      <div class="cloud-detail"><strong>K8s:</strong> AKS (Control plane mien phi)</div>
+      <div class="cloud-detail"><strong>CSDL:</strong> Flexible Server PG 16</div>
+      <div class="cloud-detail"><strong>Luu tru:</strong> Azure Files CSI</div>
+      <div class="cloud-detail"><strong>Can bang tai:</strong> Azure Load Balancer</div>
+      <div class="cloud-detail"><strong>Tin dung:</strong> $100 / Sinh vien</div>
+      <div class="cloud-detail"><strong>Thoi gian:</strong> ~30 phut</div>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Tai nguyen</th>
+          <th>DigitalOcean</th>
+          <th>AWS</th>
+          <th>Azure</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Kubernetes</td><td>DOKS</td><td>EKS</td><td>AKS (CP mien phi)</td></tr>
+        <tr><td>Co so du lieu</td><td>PostgreSQL quan ly</td><td>RDS PostgreSQL</td><td>Flexible Server</td></tr>
+        <tr><td>Luu tru chia se (RWX)</td><td>Longhorn</td><td>EFS + CSI</td><td>Azure Files CSI</td></tr>
+        <tr><td>Can bang tai</td><td>DO LB</td><td>Nginx Ingress</td><td>Azure LB</td></tr>
+        <tr><td>Mang</td><td>VPC quan ly</td><td>VPC tu cau hinh</td><td>Azure VNet</td></tr>
+        <tr><td>Bao mat CSDL</td><td>SSL bat buoc</td><td>Noi bo VPC</td><td>DNS Zone rieng</td></tr>
+        <tr><td>Chi phi / phien 3h</td><td>~$0.54</td><td>~$0.50</td><td>~$0.50</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- TU DONG MO RONG -->
+<section id="scaling">
+  <div class="section-header">
+    <div class="section-number">04 — Tu dong mo rong</div>
+    <h2>Horizontal Pod Autoscaler</h2>
+    <p>Tu dong mo rong dua tren muc su dung CPU va Memory. He thong cung cap 3 cau hinh quy mo san co. Thuc te da kiem thu voi cau hinh Small (1-2 pods) tren DigitalOcean va Azure.</p>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Cau hinh</th>
+          <th>Nguoi dung</th>
+          <th>Pod toi thieu</th>
+          <th>Pod toi da</th>
+          <th>Nguong CPU</th>
+          <th>Nguong Memory</th>
+          <th>Tang quy mo</th>
+          <th>Giam quy mo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-green">Nho</span></td>
+          <td>&lt; 1.000</td><td>1</td><td>2</td><td>70%</td><td>80%</td>
+          <td>+2 pod / 60s</td><td>-1 pod / 120s</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">Vua</span></td>
+          <td>1K - 10K</td><td>1</td><td>4</td><td>65%</td><td>80%</td>
+          <td>+2 pod / 60s</td><td>-1 pod / 120s</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-purple">Lon</span></td>
+          <td>&gt; 10K</td><td>2</td><td>8</td><td>60%</td><td>75%</td>
+          <td>+3 pod / 60s</td><td>-1 pod / 600s</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="card">
+      <h3>Tai nguyen (Nho)</h3>
+      <p>CPU: <code>200m</code> / Memory: <code>512Mi</code></p>
+      <p style="margin-top:0.5rem">Gioi han: <code>500m</code> / <code>1Gi</code></p>
+      <p style="margin-top:0.5rem;color:var(--accent-green)">Luu tru: 10Gi</p>
+    </div>
+    <div class="card">
+      <h3>Tai nguyen (Vua)</h3>
+      <p>CPU: <code>500m</code> / Memory: <code>1Gi</code></p>
+      <p style="margin-top:0.5rem">Gioi han: <code>1500m</code> / <code>2Gi</code></p>
+      <p style="margin-top:0.5rem;color:var(--accent-blue)">Luu tru: 20Gi + Redis</p>
+    </div>
+    <div class="card">
+      <h3>Tai nguyen (Lon)</h3>
+      <p>CPU: <code>1000m</code> / Memory: <code>2Gi</code></p>
+      <p style="margin-top:0.5rem">Gioi han: <code>2000m</code> / <code>4Gi</code></p>
+      <p style="margin-top:0.5rem;color:var(--accent-purple)">Luu tru: 50Gi + Redis</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Chinh sach mo rong HPA</h3>
+  <pre><code># Mo rong bat doi xung: tang nhanh, giam cham
+behavior:
+  scaleUp:
+    stabilizationWindowSeconds: 60    # Phan hoi nhanh khi co tai
+    policies:
+      - type: Pods
+        value: 2                       # Them toi da 2 pod moi lan
+        periodSeconds: 60
+  scaleDown:
+    stabilizationWindowSeconds: 300   # Cho 5 phut truoc khi giam
+    policies:
+      - type: Pods
+        value: 1                       # Chi giam 1 pod moi lan
+        periodSeconds: 120</code></pre>
+</section>
+
+<!-- GIAM SAT -->
+<section id="monitoring">
+  <div class="section-header">
+    <div class="section-number">05 — Giam sat</div>
+    <h2>Giam sat va quan sat</h2>
+    <p>He thong giam sat day du voi Prometheus, dashboard Grafana Cloud, va chi so tuy chinh cho HPA thong minh.</p>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h3>Prometheus</h3>
+      <p>Thu thap metrics voi luu tru 6 gio. Thu thap CPU, memory, mang, va suc khoe pod cua container. Tuy chon day len Grafana Cloud qua remote_write.</p>
+    </div>
+    <div class="card">
+      <h3>Grafana Cloud</h3>
+      <p>Hai dashboard tu dong: <strong>Tong quan Moodle</strong> (CPU pod, memory, HPA, CronJob) va <strong>Tai nguyen Cluster</strong> (su dung node, dia, phan bo pod).</p>
+    </div>
+    <div class="card">
+      <h3>prometheus-adapter</h3>
+      <p>Cung cap chi so tuy chinh <code>http_requests_per_second</code> tu byte mang container, cho phep HPA mo rong dua tren luu luong thuc te.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Cac panel dashboard</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Dashboard</th><th>Panel</th><th>Truy van PromQL</th></tr>
+      </thead>
+      <tbody>
+        <tr><td rowspan="4">Tong quan Moodle</td><td>CPU theo Pod</td><td><code>rate(container_cpu_usage_seconds_total{container="moodle"}[5m])</code></td></tr>
+        <tr><td>Memory theo Pod</td><td><code>container_memory_working_set_bytes{container="moodle"}</code></td></tr>
+        <tr><td>So ban sao HPA</td><td><code>kube_horizontalpodautoscaler_status_current_replicas</code></td></tr>
+        <tr><td>Luu luong mang</td><td><code>rate(container_network_receive_bytes_total[5m])</code></td></tr>
+        <tr><td rowspan="3">Tai nguyen Cluster</td><td>CPU Node</td><td><code>1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))</code></td></tr>
+        <tr><td>Memory Node</td><td><code>1 - (node_memory_MemAvailable / node_memory_MemTotal)</code></td></tr>
+        <tr><td>Pod theo Node</td><td><code>count(kube_pod_info) by (node)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- SAO LUU -->
+<section id="backup">
+  <div class="section-header">
+    <div class="section-number">06 — Sao luu va khoi phuc</div>
+    <h2>Khoi phuc tham hoa</h2>
+    <p>Sao luu co so du lieu tu dong voi khoi phuc theo thoi diem va ho tro chuyen doi giua cac dam may.</p>
+  </div>
+
+  <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
+    <div class="card">
+      <h3>Sao luu</h3>
+      <pre><code># Sao luu tu dong hang ngay (CronJob luc 2 gio sang)
+# Sao luu thu cong:
+./backup.sh production          # Voi thoi gian
+./backup.sh production latest   # Chi giu ban moi nhat
+
+# Ket qua: backups/production-moodle-20260325.sql.gz</code></pre>
+      <p style="margin-top:1rem">Su dung <code>pg_dump</code> nen gzip qua pod Kubernetes tam thoi. Luu tru cau hinh duoc (mac dinh: 7 ngay).</p>
+    </div>
+    <div class="card">
+      <h3>Khoi phuc</h3>
+      <pre><code># Khoi phuc tu ban sao luu:
+./restore.sh production backups/file.sql.gz
+
+# Quy trinh:
+# 1. Giam pod Moodle xuong 0
+# 2. Tam dung CronJob
+# 3. Xoa va khoi phuc schema
+# 4. Tang pod tro lai
+# 5. Xac nhan qua kiem tra phien ban</code></pre>
+      <p style="margin-top:1rem">Khoi phuc khong gian doan voi quan ly pod tu dong. Cung dinh dang sao luu hoat dong tren tat ca nha cung cap dam may.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CI/CD -->
+<section id="cicd">
+  <div class="section-header">
+    <div class="section-number">07 — CI/CD</div>
+    <h2>Tich hop lien tuc</h2>
+    <p>Pipeline kiem tra tu dong voi GitHub Actions dam bao chat luong va bao mat ha tang.</p>
+  </div>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="step-num">Job 1</div>
+      <div class="step-name">Kiem tra Terraform</div>
+      <div class="step-time">fmt + init + validate</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Job 2</div>
+      <div class="step-name">Ke hoach Terraform</div>
+      <div class="step-time">Xem truoc thay doi</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Job 3</div>
+      <div class="step-name">Quet bao mat</div>
+      <div class="step-time">tfsec + kubesec</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Job 4</div>
+      <div class="step-name">Kiem tra Helm</div>
+      <div class="step-time">lint + template</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Job 5</div>
+      <div class="step-name">ShellCheck</div>
+      <div class="step-time">Phan tich script</div>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Job</th><th>Cong cu</th><th>Pham vi</th><th>Bat buoc</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Kiem tra Terraform</td><td><code>terraform fmt, validate</code></td><td>Tat ca nha cung cap</td><td><span class="badge badge-green">Bat buoc</span></td></tr>
+        <tr><td>Ke hoach Terraform</td><td><code>terraform plan</code></td><td>DigitalOcean (chi PR)</td><td><span class="badge badge-blue">Tuy chon</span></td></tr>
+        <tr><td>Quet bao mat</td><td><code>tfsec, kubesec</code></td><td>Terraform + Helm</td><td><span class="badge badge-orange">Canh bao</span></td></tr>
+        <tr><td>Kiem tra Helm</td><td><code>helm lint, template</code></td><td>3 cau hinh quy mo</td><td><span class="badge badge-green">Bat buoc</span></td></tr>
+        <tr><td>ShellCheck</td><td><code>shellcheck</code></td><td>Tat ca shell script</td><td><span class="badge badge-green">Bat buoc</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- KIEM THU TAI -->
+<section id="stress">
+  <div class="section-header">
+    <div class="section-number">08 — Kiem thu tai</div>
+    <h2>Kiem thu tai va hieu nang</h2>
+    <p>Framework kiem thu tai k6 voi quet dung luong tu dong va xac nhan SLA.</p>
+  </div>
+
+  <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
+    <div class="card">
+      <h3>Cau hinh kiem thu thuc te</h3>
+      <div class="table-wrapper" style="margin:1rem 0">
+        <table>
+          <tbody>
+            <tr><td>Framework</td><td><strong>k6</strong> (ma nguon mo)</td></tr>
+            <tr><td>Cau hinh su dung</td><td><span class="badge badge-green">Small</span> (1-2 pods)</td></tr>
+            <tr><td>Nguoi dung dong thoi</td><td>20 VUs</td></tr>
+            <tr><td>Thoi luong</td><td>2 phut (ramp-up 40s + hold 40s + ramp-down 40s)</td></tr>
+            <tr><td>Endpoint</td><td>Trang chu + Trang dang nhap</td></tr>
+            <tr><td>Dam may</td><td>DigitalOcean + Azure</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Ket qua thuc te (20 VUs - DigitalOcean)</h3>
+      <div class="table-wrapper" style="margin:1rem 0">
+        <table>
+          <tbody>
+            <tr><td>Kiem tra HTTP</td><td><span class="badge badge-green">580/580 (100%)</span></td></tr>
+            <tr><td>Thoi gian phan hoi TB</td><td><strong>2.35s</strong></td></tr>
+            <tr><td>Phan hoi P95</td><td><strong>3.89s</strong></td></tr>
+            <tr><td>Thong luong</td><td>4.8 req/s</td></tr>
+            <tr><td>HPA Mo rong</td><td><span class="badge badge-blue">1 &rarr; 2 pods (CPU 71%)</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Kich ban kiem thu</h3>
+  <pre><code>// Kich ban k6 (k6-moodle.js)
+export default function () {
+  const home = http.get(`${BASE_URL}/`);                    // Trang chu Moodle
+  check(home, { 'trang chu 200': (r) => r.status === 200 });
+
+  const login = http.get(`${BASE_URL}/login/index.php`);    // Trang dang nhap
+  check(login, { 'dang nhap 200': (r) => r.status === 200 });
+
+  sleep(1);  // Thoi gian nghi giua cac yeu cau
+}</code></pre>
+</section>
+
+<!-- TIEN TRINH TRIEN KHAI -->
+<section id="deployment">
+  <div class="section-header">
+    <div class="section-number">09 — Trien khai</div>
+    <h2>Quy trinh trien khai</h2>
+    <p>Trien khai tu so khong den Moodle LMS hoan chinh chi bang mot lenh duy nhat.</p>
+  </div>
+
+  <pre><code>$ ./setup.sh production    # Mot lenh trien khai toan bo</code></pre>
+
+  <div class="flow-steps" style="margin-top:2rem">
+    <div class="flow-step">
+      <div class="step-num">Buoc 1</div>
+      <div class="step-name">Terraform Apply</div>
+      <div class="step-time">5-15 phut</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Buoc 2</div>
+      <div class="step-name">Cai Ingress</div>
+      <div class="step-time">2-3 phut</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Buoc 3</div>
+      <div class="step-name">Giam sat</div>
+      <div class="step-time">3-5 phut</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Buoc 4</div>
+      <div class="step-name">Helm Deploy</div>
+      <div class="step-time">2-3 phut</div>
+    </div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-step">
+      <div class="step-num">Buoc 5</div>
+      <div class="step-name">Cai dat CSDL</div>
+      <div class="step-time">5-10 phut</div>
+    </div>
+  </div>
+</section>
+
+<!-- TIEN TRINH PHAT TRIEN -->
+<section id="timeline">
+  <div class="section-header">
+    <div class="section-number">10 — Tien trinh phat trien</div>
+    <h2>Qua trinh phat trien du an</h2>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-item">
+      <div class="timeline-date">Thang 3/2026</div>
+      <div class="timeline-title">Ho tro da dam may Azure</div>
+      <div class="timeline-desc">Them ho tro Azure AKS voi Terraform, PostgreSQL Flexible Server, Azure Files. Xac nhan trien khai tren 3 dam may.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">Thang 3/2026</div>
+      <div class="timeline-title">Tich hop AWS EKS</div>
+      <div class="timeline-desc">Trien khai AWS voi VPC, EKS, RDS, EFS. Nginx Ingress voi hostPort de toi uu chi phi.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">25/03/2026</div>
+      <div class="timeline-title">Script sao luu va khoi phuc</div>
+      <div class="timeline-desc">Sao luu pg_dump tu dong qua CronJob voi luu tru 7 ngay. Khoi phuc theo thoi diem voi quan ly pod.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">24/03/2026</div>
+      <div class="timeline-title">Tich hop Grafana Cloud</div>
+      <div class="timeline-desc">Prometheus remote_write len Grafana Cloud. Dashboard tu dong cho metrics Moodle va tai nguyen cluster.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">23/03/2026</div>
+      <div class="timeline-title">Redis va Prometheus</div>
+      <div class="timeline-desc">Them ho tro bo nho dem Redis cho cau hinh vua/lon. Tich hop kube-prometheus-stack va prometheus-adapter cho HPA.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">19/03/2026</div>
+      <div class="timeline-title">Pipeline CI/CD</div>
+      <div class="timeline-desc">GitHub Actions voi kiem tra Terraform, quet bao mat (tfsec/kubesec), Helm lint va ShellCheck.</div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-date">18/03/2026</div>
+      <div class="timeline-title">Tai cau truc Helm Chart</div>
+      <div class="timeline-desc">Chuyen tu manifest thu cong sang Helm chart khong phu thuoc dam may voi 3 cau hinh quy mo.</div>
+    </div>
+  </div>
+</section>
+
+<!-- CONG NGHE -->
+<section id="tech">
+  <div class="section-header">
+    <div class="section-number">11 — Cong nghe</div>
+    <h2>Ngan xep cong nghe</h2>
+  </div>
+
+  <h3 style="margin-bottom:1rem;">Ha tang dang ma (IaC)</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">Terraform 1.9+</span>
+    <span class="tech-tag">Helm 3</span>
+    <span class="tech-tag">kubectl</span>
+    <span class="tech-tag">Azure CLI</span>
+    <span class="tech-tag">AWS CLI</span>
+    <span class="tech-tag">doctl</span>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Container va dieu phoi</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">Kubernetes</span>
+    <span class="tech-tag">Docker</span>
+    <span class="tech-tag">DOKS / EKS / AKS</span>
+    <span class="tech-tag">Ingress Nginx</span>
+    <span class="tech-tag">HPA</span>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Co so du lieu va luu tru</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">PostgreSQL 16</span>
+    <span class="tech-tag">Redis 7</span>
+    <span class="tech-tag">Longhorn</span>
+    <span class="tech-tag">AWS EFS</span>
+    <span class="tech-tag">Azure Files</span>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Giam sat va kiem thu</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">Prometheus</span>
+    <span class="tech-tag">Grafana Cloud</span>
+    <span class="tech-tag">prometheus-adapter</span>
+    <span class="tech-tag">kube-state-metrics</span>
+    <span class="tech-tag">node-exporter</span>
+    <span class="tech-tag">k6 Kiem thu tai</span>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">CI/CD va bao mat</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">GitHub Actions</span>
+    <span class="tech-tag">tfsec</span>
+    <span class="tech-tag">kubesec</span>
+    <span class="tech-tag">ShellCheck</span>
+    <span class="tech-tag">Cloudflare DNS</span>
+  </div>
+
+  <h3 style="margin-top:2rem; margin-bottom:1rem;">Ung dung</h3>
+  <div class="tech-grid">
+    <span class="tech-tag">Moodle LMS</span>
+    <span class="tech-tag">Apache</span>
+    <span class="tech-tag">PHP</span>
+    <span class="tech-tag">Docker Hub</span>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p style="margin-bottom:0.5rem"><strong>Ha tang Kubernetes da dam may cho he thong Moodle LMS HCMUT</strong></p>
+  <p>Nguyen Dang Cuong &mdash; Truong Dai hoc Bach Khoa TP.HCM (HCMUT) &mdash; 2026</p>
+  <p style="margin-top:1rem; color: var(--text-muted)">
+    GitHub: <code>moodle-k8s-infra</code> &bull;
+    Ten mien: <code>lms.ndcuong.online</code> &bull;
+    Giam sat: <code>dangcuong201004.grafana.net</code>
+  </p>
+</footer>
+
+</body>
+</html>

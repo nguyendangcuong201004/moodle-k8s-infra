@@ -7,7 +7,11 @@ terraform {
   }
 }
 
+variable "aws_profile" {
+  default = "moodle-aws"
+}
+
 provider "aws" {
   region  = "ap-southeast-1"
-  profile = "devops"
+  profile = var.aws_profile
 }

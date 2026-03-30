@@ -9,9 +9,8 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
   set +a
 fi
 
-AWS_PROFILE="${AWS_PROFILE:-devops}"
+AWS_PROFILE="${AWS_PROFILE:-moodle-aws}"
 AWS_REGION="${AWS_REGION:-ap-southeast-1}"
-AWS_ROLE_ARN="${AWS_ROLE_ARN:-}"
 CLUSTER_NAME="moodle-cluster"
 K8S_DIR="k8s"
 
@@ -20,7 +19,6 @@ command -v terraform >/dev/null 2>&1 || { echo "terraform is required"; exit 1; 
 command -v aws >/dev/null 2>&1 || { echo "awscli is required"; exit 1; }
 command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required"; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required"; exit 1; }
-command -v envsubst >/dev/null 2>&1 || { echo "envsubst is required (usually from gettext)"; exit 1; }
 command -v helm >/dev/null 2>&1 || { echo "helm is required"; exit 1; }
 
 AWS_CONFIG_FILE="${HOME}/.aws/config"
@@ -45,19 +43,6 @@ if ! grep -q "^\[profile ${AWS_PROFILE}\]" "${AWS_CONFIG_FILE}"; then
   } >> "${AWS_CONFIG_FILE}"
 fi
 
-if [[ -n "${AWS_ROLE_ARN}" ]]; then
-  echo "Ensuring role_arn is set for profile '${AWS_PROFILE}' using AWS_ROLE_ARN from .env."
-  if ! awk "/^\[profile ${AWS_PROFILE}\]/ {found=1} found && /role_arn/ {print; exit}" "${AWS_CONFIG_FILE}" >/dev/null 2>&1; then
-    {
-      echo
-      echo "# Added by moodle-k8s-infra aws/setup.sh"
-      echo "[profile ${AWS_PROFILE}]"
-      echo "role_arn = ${AWS_ROLE_ARN}"
-      echo "source_profile = default"
-    } >> "${AWS_CONFIG_FILE}"
-  fi
-fi
-
 export AWS_PROFILE
 
 echo
@@ -71,7 +56,7 @@ fi
 echo "Running terraform apply..."
 export TF_IN_AUTOMATION=1
 export TF_LOG=ERROR
-terraform apply -auto-approve
+terraform apply -auto-approve -var="aws_profile=${AWS_PROFILE}"
 
 echo "Reading Terraform outputs..."
 TF_JSON=$(terraform output -json)
@@ -125,6 +110,93 @@ echo
 echo "=== Step 5: Scale CoreDNS down to 1 replica ==="
 kubectl -n kube-system scale deployment coredns --replicas=1
 kubectl -n kube-system rollout status deployment coredns || true
+
+echo
+echo "=== Step 5.1: Metrics Server (required for HPA) ==="
+if ! kubectl get deployment metrics-server -n kube-system &>/dev/null; then
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s || true
+fi
+
+echo
+echo "=== Step 5.2: Prometheus + Adapter (monitoring + custom metrics) ==="
+
+# Grafana Cloud remote_write (optional)
+GRAFANA_REMOTE_WRITE_ARGS=""
+if [[ -n "${GRAFANA_CLOUD_API_KEY:-}" ]]; then
+  echo "Grafana Cloud integration enabled — configuring remote_write..."
+  [[ -z "${GRAFANA_CLOUD_PROM_URL:-}" ]] && { echo "GRAFANA_CLOUD_PROM_URL required"; exit 1; }
+  [[ -z "${GRAFANA_CLOUD_PROM_USERNAME:-}" ]] && { echo "GRAFANA_CLOUD_PROM_USERNAME required"; exit 1; }
+  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic grafana-cloud-credentials \
+    --namespace monitoring \
+    --from-literal=username="${GRAFANA_CLOUD_PROM_USERNAME}" \
+    --from-literal=password="${GRAFANA_CLOUD_API_KEY}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  GRAFANA_REMOTE_WRITE_ARGS="\
+    --set prometheus.prometheusSpec.remoteWrite[0].url=${GRAFANA_CLOUD_PROM_URL} \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.username.name=grafana-cloud-credentials \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.username.key=username \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.password.name=grafana-cloud-credentials \
+    --set prometheus.prometheusSpec.remoteWrite[0].basicAuth.password.key=password"
+fi
+
+if ! helm list -n monitoring -q 2>/dev/null | grep -q '^kube-prometheus-stack$'; then
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+  helm repo update
+  # shellcheck disable=SC2086
+  helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+    --namespace monitoring --create-namespace \
+    --set prometheus.prometheusSpec.retention=6h \
+    --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+    --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
+    --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+    --set prometheus.prometheusSpec.resources.limits.memory=512Mi \
+    --set grafana.resources.requests.cpu=50m \
+    --set grafana.resources.requests.memory=128Mi \
+    --set grafana.resources.limits.cpu=200m \
+    --set grafana.resources.limits.memory=256Mi \
+    --set alertmanager.enabled=false \
+    --set nodeExporter.enabled=true \
+    --set kubeStateMetrics.enabled=true \
+    ${GRAFANA_REMOTE_WRITE_ARGS} \
+    --wait --timeout 5m || echo "Prometheus install failed, continuing..."
+fi
+
+if ! helm list -n monitoring -q 2>/dev/null | grep -q '^prometheus-adapter$'; then
+  helm install prometheus-adapter prometheus-community/prometheus-adapter \
+    --namespace monitoring \
+    --set prometheus.url=http://kube-prometheus-stack-prometheus.monitoring.svc \
+    --set prometheus.port=9090 \
+    --set rules.default=false \
+    --set "rules.custom[0].seriesQuery=container_network_receive_bytes_total{namespace=\"moodle-production\"}" \
+    --set "rules.custom[0].resources.overrides.namespace.resource=namespace" \
+    --set "rules.custom[0].resources.overrides.pod.resource=pod" \
+    --set "rules.custom[0].name.as=http_requests_per_second" \
+    --set "rules.custom[0].metricsQuery=sum(rate(container_network_receive_bytes_total{namespace=\"moodle-production\",container=\"moodle\"}[2m])) by (pod) / 1024" \
+    --wait --timeout 3m || echo "Prometheus-adapter install failed, continuing..."
+fi
+
+echo
+echo "=== Step 5.3: Provision Grafana Cloud dashboards ==="
+if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" && -n "${GRAFANA_CLOUD_URL:-}" ]]; then
+  DASHBOARDS_DIR="${SCRIPT_DIR}/grafana/dashboards"
+  if [[ -d "${DASHBOARDS_DIR}" ]]; then
+    for dashboard_file in "${DASHBOARDS_DIR}"/*.json; do
+      [ -f "${dashboard_file}" ] || continue
+      dashboard_name=$(basename "${dashboard_file}" .json)
+      echo "Importing dashboard: ${dashboard_name}"
+      PAYLOAD=$(jq -n --argjson dashboard "$(cat "${dashboard_file}")" \
+        '{dashboard: ($dashboard + {id: null}), overwrite: true, folderId: 0}')
+      curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
+        -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "${PAYLOAD}" || echo "  Failed to import ${dashboard_name}"
+    done
+  fi
+else
+  echo "Skipped (GRAFANA_CLOUD_TOKEN or GRAFANA_CLOUD_URL not set)"
+fi
 
 echo
 echo "=== Step 6: Deploy Moodle via Helm ==="
