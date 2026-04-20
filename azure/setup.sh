@@ -214,13 +214,12 @@ fi
 echo
 echo "=== Step 5: Deploy Moodle via Helm ==="
 HELM_CHART="${SCRIPT_DIR}/helm/moodle"
-SIZE_PROFILE="${SIZE_PROFILE:-small}"
 [[ ! -d "${HELM_CHART}" ]] && { echo "Helm chart not found at ${HELM_CHART}"; exit 1; }
 
-echo "Deploying with size profile: ${SIZE_PROFILE}"
+echo "Deploying with unified high-capacity profile (values.yaml)"
 helm upgrade --install moodle "${HELM_CHART}" \
   --namespace moodle --create-namespace \
-  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  -f "${HELM_CHART}/values.yaml" \
   --set db.host="${DB_HOST}" \
   --set db.port="${DB_PORT}" \
   --set db.name="${DB_NAME}" \

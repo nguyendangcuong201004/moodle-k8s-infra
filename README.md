@@ -9,9 +9,9 @@ Per-Cloud (Terraform)              Cloud-Agnostic (Helm)
 ┌─────────────────┐               ┌──────────────────────┐
 │ digitalocean/   │──┐            │  helm/moodle/        │
 │   terraform     │  │            │    values.yaml       │
-│   setup.sh      │  │  helm      │    values-small.yaml │
-│   (Longhorn)    │──┼──install──>│    values-medium.yaml│
-│                 │  │            │    values-large.yaml │
+│   setup.sh      │  │  helm      │    templates/        │
+│   (Longhorn)    │──┼──install──>│      deployment      │
+│                 │  │            │      service, hpa    │
 │ aws/            │  │            │    templates/        │
 │   terraform     │──┘            │      deployment      │
 │   setup.sh      │               │      service, hpa    │
@@ -24,6 +24,76 @@ Per-Cloud (Terraform)              Cloud-Agnostic (Helm)
 - **Helm chart** deploys Moodle identically on any K8s cluster.
 - **setup.sh / destroy.sh** per cloud orchestrate the full lifecycle.
 
+## DigitalOcean Unified High-Capacity Architecture
+
+### Shared Infrastructure Blueprint
+
+```mermaid
+flowchart LR
+    U[Users] --> DNS[DO DNS]
+    DNS --> LB[DO Load Balancer TLS 443]
+    LB --> ING[Ingress NGINX on DOKS]
+
+    subgraph VPC[DigitalOcean VPC]
+        subgraph K8S[DOKS Cluster]
+            SYS[System Pool]
+            APP[App Pool]
+            JOB[Job Pool]
+        end
+        DB[(Managed MySQL or PostgreSQL)]
+        RD[(Managed Redis)]
+        SP[(DO Spaces S3)]
+    end
+
+    APP --> DB
+    APP --> RD
+    APP --> SP
+    JOB --> DB
+    JOB --> RD
+```
+
+```mermaid
+flowchart TB
+    LB[DO LB] --> ING[Ingress x3]
+    subgraph DOKS[Unified DOKS]
+        APP[app-pool: min3 max3 x 4vCPU 8GB]
+        WEB[Moodle web: HPA min4 max20]
+        CRON[Cron worker: 1-2 pods]
+        MON[Prometheus HA + Grafana + Loki]
+    end
+    WEB --> DB[(DB HA 6vCPU 16GB)]
+    WEB --> RD[(Redis in-cluster)]
+    WEB --> SP[(Optional object storage)]
+```
+
+### Capacity Defaults
+
+| Component | Unified Default |
+|---|---|
+| DOKS app-pool | min 3, max 3 (`4vCPU/8GB`) |
+| Moodle web pods | HPA min 4, max 20 |
+| Web pod requests/limits | `1 CPU/2 CPU`, `2Gi/4Gi` |
+| Cron requests/limits | `300m/1 CPU`, `512Mi/1Gi` |
+| DB managed | HA `6vCPU/16GB` |
+| PVC | `80Gi` |
+
+Quota note: default node autoscale is intentionally set to `min=3, max=3` to avoid DigitalOcean 422 droplet-limit failures on new accounts. After your droplet quota is increased, scale by exporting Terraform vars before deploy:
+
+```bash
+export TF_VAR_node_pool_min_nodes=3
+export TF_VAR_node_pool_max_nodes=6
+./setup.sh production
+```
+
+### Kubernetes Policy and Reliability Defaults
+
+- Web `Deployment`: `maxUnavailable=0`, `maxSurge=1`.
+- PodDisruptionBudget: tune based on SLO and maintenance windows.
+- Anti-affinity required for web and ingress pods.
+- HPA target: CPU 60%, memory 75%.
+- Cluster Autoscaler enabled for all node pools.
+- Backup policy: DB daily snapshot + weekly restore test.
+
 ## Supported Clouds
 
 | | DigitalOcean | AWS |
@@ -34,22 +104,17 @@ Per-Cloud (Terraform)              Cloud-Agnostic (Helm)
 | Load Balancer | DO LB | NLB / Ingress Nginx |
 | Networking | Managed VPC | Self-managed VPC |
 
-## Size Profiles (Auto-Scaling)
+## Unified Auto-Scaling Profile
 
-The Helm chart includes three size profiles with HPA (Horizontal Pod Autoscaler):
+The Helm chart now uses one production-first profile in `values.yaml`:
 
-| Profile | Users | Pods | CPU Target | Memory Target | Scale Behavior |
-|---|---|---|---|---|---|
-| **Small** | < 1,000 | 1 - 2 | 70% | 80% | Scale up +2/60s, down -1/120s (5min wait) |
-| **Medium** | 1K - 10K | 1 - 4 | 65% | 80% | Scale up +2/60s, down -1/120s (5min wait) |
-| **Large** | > 10K | 2 - 8 | 60% | 75% | Scale up +3/60s, down -1/120s (10min wait) |
-
-All profiles scale to minimum pods when idle (cost saving) and scale up under load (UX protection).
-
-Select profile via environment variable:
-```bash
-SIZE_PROFILE=medium ./setup.sh production
-```
+| Setting | Value |
+|---|---|
+| HPA | enabled |
+| Replicas | min 4, max 20 |
+| CPU / Memory target | 60% / 75% |
+| Scale up behavior | +4 pods / 60s, 15s stabilization |
+| Scale down behavior | -1 pod / 120s, 420s stabilization |
 
 ## Prerequisites
 
@@ -145,7 +210,7 @@ helm lint helm/moodle/
 
 # Dry-run render
 helm template moodle helm/moodle/ \
-  -f helm/moodle/values-small.yaml \
+    -f helm/moodle/values.yaml \
   --set db.host=mydb.example.com \
   --set db.password=secret \
   --set moodle.wwwroot=https://lms.example.com
@@ -165,7 +230,7 @@ helm upgrade moodle helm/moodle/ -n moodle --set image.tag=v2.0
 | `moodle.wwwroot` | Site URL | (required) |
 | `persistence.storageClass` | Storage class | `""` (longhorn for DO, efs-sc for AWS) |
 | `service.type` | Service type | `ClusterIP` (LoadBalancer for DO) |
-| `autoscaling.enabled` | Enable HPA | `false` (overridden by size profiles) |
+| `autoscaling.enabled` | Enable HPA | `true` |
 
 ## CI/CD
 
@@ -176,7 +241,7 @@ GitHub Actions workflow (`.github/workflows/validate.yml`) runs on push and PR:
 | **Terraform Validate** | `fmt -check` + `init` + `validate` for DO and AWS |
 | **Terraform Plan** | `terraform plan` on PRs (requires `DO_TOKEN` secret) |
 | **Security Scan** | tfsec (Terraform) + kubesec (Helm Deployment) |
-| **Helm Validate** | Lint + template render for all 3 size profiles |
+| **Helm Validate** | Lint + template render for unified profile |
 | **ShellCheck** | Shell script syntax checking |
 
 ### GitHub Secrets
@@ -202,11 +267,11 @@ BASE_URL="https://lms.yourdomain.com" k6 run --vus 50 --duration 3m k6-moodle.js
 watch -n 5 'kubectl get hpa -n moodle && echo "---" && kubectl get pods -n moodle'
 ```
 
-| VUs | Simulated Users | Recommended Profile |
+| VUs | Simulated Users | Recommended Setup |
 |---|---|---|
-| 50 | ~500 - 1,000 | Small |
-| 150 | ~1,500 - 3,000 | Medium |
-| 300 | ~3,000 - 6,000 | Large |
+| 50 | ~500 - 1,000 | Unified defaults |
+| 150 | ~1,500 - 3,000 | Unified defaults |
+| 300 | ~3,000 - 6,000 | Unified defaults + monitor HPA/node autoscale |
 
 ## Project Structure
 
@@ -216,10 +281,7 @@ moodle-k8s-infra/
 │   └── validate.yml
 ├── helm/moodle/           # Cloud-agnostic Helm chart
 │   ├── Chart.yaml
-│   ├── values.yaml        # Default values
-│   ├── values-small.yaml  # < 1K users
-│   ├── values-medium.yaml # 1K-10K users
-│   ├── values-large.yaml  # > 10K users
+│   ├── values.yaml        # Unified high-capacity defaults
 │   └── templates/
 ├── digitalocean/          # DO-specific Terraform + scripts
 │   ├── *.tf

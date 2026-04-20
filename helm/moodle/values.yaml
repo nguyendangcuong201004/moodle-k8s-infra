@@ -1,12 +1,35 @@
 # HCMUT Moodle LMS - Default Helm Values
 # Override per cloud via setup.sh --set flags or custom values files.
 
-replicaCount: 1
+replicaCount: 3
 
 image:
   repository: ndcuongdevops/moodle-lms
   tag: staging
   pullPolicy: IfNotPresent
+
+# Nginx sidecar: HTTP on :80 → PHP-FPM :9000 (required when image is php-fpm, not apache)
+nginx:
+  image:
+    repository: nginx
+    tag: "1.25-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+phpFpm:
+  env:
+    OPCACHE_MEMORY: "512"
+    FPM_PM_CONTROL: "dynamic"
+    # Bound per-pod concurrency to reduce DB wait/lock amplification under burst traffic.
+    FPM_MAX_CHILDREN: "24"
+    FPM_START_SERVERS: "6"
+    FPM_MIN_SPARE: "4"
+    FPM_MAX_SPARE: "8"
 
 # Database configuration (REQUIRED: host, password)
 db:
@@ -17,16 +40,44 @@ db:
   user: moodleuser
   password: ""
   sslmode: require
+  readonlyHosts: []
+  readonly:
+    connectTimeoutSeconds: 2
+    latencySeconds: 1
+
+# PgBouncer sidecar in each web pod: app -> localhost:6432 -> managed Postgres
+pgbouncer:
+  enabled: true
+  image: edoburu/pgbouncer:latest
+  listenPort: 6432
+  # DO managed Postgres defaults to SCRAM; avoid auth mismatch with md5.
+  authType: scram-sha-256
+  poolMode: session
+  maxClientConn: 1200
+  defaultPoolSize: 20
+  reservePoolSize: 3
+  reservePoolTimeoutSeconds: 3
+  serverIdleTimeoutSeconds: 30
+  queryWaitTimeoutSeconds: 120
+  ignoreStartupParameters: extra_float_digits
+  resources:
+    requests:
+      cpu: 150m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
 
 # Moodle application settings (REQUIRED: wwwroot)
 moodle:
   wwwroot: ""
   sslProxy: "true"
+  reverseProxy: "false"
 
 # Persistent storage for /var/www/moodledata
 persistence:
   storageClass: ""
-  size: 10Gi
+  size: 80Gi
   accessMode: ReadWriteMany
 
 # Service configuration
@@ -48,19 +99,19 @@ ingress:
 # Resource requests and limits
 resources:
   requests:
-    cpu: 200m
-    memory: 512Mi
+    cpu: 500m
+    memory: 768Mi
   limits:
-    cpu: 1000m
-    memory: 1536Mi
+    cpu: 1800m
+    memory: 2560Mi
 
 # Horizontal Pod Autoscaler
 autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 4
-  targetCPUUtilizationPercentage: 65
-  targetMemoryUtilizationPercentage: 80
+  enabled: true
+  minReplicas: 6
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 45
+  targetMemoryUtilizationPercentage: 75
   # Custom metrics via Prometheus (requires prometheus-adapter)
   customMetrics:
     enabled: false
@@ -68,11 +119,11 @@ autoscaling:
     targetValue: "50"
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 60
-      podValue: 2
+      stabilizationWindowSeconds: 0
+      podValue: 3
     scaleDown:
-      stabilizationWindowSeconds: 300
-      podValue: 1
+      stabilizationWindowSeconds: 60
+      podValue: 4
 
 # Pod anti-affinity to spread across nodes
 affinity:
@@ -88,21 +139,19 @@ affinity:
                   - moodle
           topologyKey: kubernetes.io/hostname
 
-# Health probes
+# HTTP probes hit the nginx container. /nginx-health is static 200; use browser/curl for real Moodle checks.
 probes:
-  # startupProbe runs first; liveness+readiness are disabled until it succeeds.
-  # 40 × 15s = 600s (10 min) — enough for first-boot DB install.
   startup:
-    path: /login/index.php
+    path: /nginx-health
     periodSeconds: 15
     failureThreshold: 40
   readiness:
-    path: /login/index.php
-    initialDelaySeconds: 10
+    path: /nginx-health
+    initialDelaySeconds: 5
     periodSeconds: 10
     failureThreshold: 3
   liveness:
-    path: /login/index.php
+    path: /nginx-health
     initialDelaySeconds: 10
     periodSeconds: 30
     failureThreshold: 3
@@ -111,27 +160,72 @@ probes:
 # Runs as a separate CronJob so it doesn't compete with web pod CPU.
 cron:
   enabled: true
-  schedule: "*/1 * * * *"
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 900
   activeDeadlineSeconds: 600
   resources:
     requests:
-      cpu: 100m
+      cpu: 200m
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 1Gi
 
 # Redis for Moodle session + application cache
 redis:
-  enabled: false
+  enabled: true
   image: redis:7-alpine
+  # Keep maxmemory below pod memory limit to avoid OOMKills during bursts.
+  maxmemory: 768mb
+  maxmemoryPolicy: allkeys-lru
+  tcpBacklog: 1024
+  timeoutSeconds: 300
+  tcpKeepaliveSeconds: 60
+  ioThreads: 2
+  ioThreadsDoReads: true
+  activeDefrag: true
+  lazyfreeLazyEviction: true
+  lazyfreeLazyExpire: true
+  # Disable persistence for cache/session workload to reduce write overhead.
+  save: ""
+  appendonly: "no"
+  priorityClassName: ""
+  podSecurityContext:
+    # Set true only when cluster policy allows this sysctl.
+    enableSysctls: false
+    netCoreSomaxconn: 1024
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - moodle
+            topologyKey: kubernetes.io/hostname
+  session:
+    acquireLockTimeout: 60
+    lockExpire: 7200
+  cache:
+    # These values are exported to config.php as bootstrap hints.
+    # Actual MUC store mapping must be configured in Moodle UI/CLI.
+    hostVarPrefix: "moodlecache_"
+    database: 1
+    customScriptsPath: ""
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
       cpu: 200m
-      memory: 128Mi
+      memory: 768Mi
+    limits:
+      cpu: 800m
+      memory: 1024Mi
 
 # Database backup (pg_dump via CronJob)
 backup:
@@ -140,15 +234,15 @@ backup:
   retentionDays: 7
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 300m
+      memory: 256Mi
     limits:
-      cpu: 500m
+      cpu: 1000m
       memory: 256Mi
 
 # Deployment strategy
 strategy:
   type: RollingUpdate
   rollingUpdate:
-    maxUnavailable: 0
-    maxSurge: 1
+    maxUnavailable: 1
+    maxSurge: 0

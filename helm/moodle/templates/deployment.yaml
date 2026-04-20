@@ -22,36 +22,114 @@ spec:
     metadata:
       labels:
         {{- include "moodle.selectorLabels" . | nindent 8 }}
+        role: web
     spec:
       {{- with .Values.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-        - name: fix-apache-config
+        - name: copy-moodle-app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - /bin/bash
+            - sh
             - -c
             - |
-              sed -i 's|DocumentRoot.*|DocumentRoot /var/www/html/public|g' /etc/apache2/sites-available/*.conf
-              echo "Apache DocumentRoot fixed to /var/www/html/public"
-      containers:
-        - name: moodle
+              set -e
+              cp -a /var/www/html/. /mnt/app/
+              echo "Moodle app copied to shared volume"
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /mnt/app
+        - name: write-moodle-config
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 80
-              protocol: TCP
+          command:
+            - sh
+            - -c
+            - |
+              cat > /mnt/app/config.php <<'PHP'
+              <?php
+              unset($CFG);
+              global $CFG;
+              $CFG = new stdClass();
+              $CFG->dbtype    = getenv('MOODLE_DB_TYPE');
+              $CFG->dbhost    = getenv('MOODLE_DB_HOST');
+              $CFG->dbname    = getenv('MOODLE_DB_NAME') ?: 'moodle';
+              $CFG->dbuser    = getenv('MOODLE_DB_USER') ?: 'moodleuser';
+              $CFG->dbpass    = getenv('MOODLE_DB_PASSWORD');
+              $CFG->prefix    = 'mdl_';
+              $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
+              $CFG->dataroot  = '/var/www/moodledata';
+              $CFG->directorypermissions = 0777;
+              $CFG->sslproxy  = (getenv('MOODLE_SSL_PROXY') === 'true');
+              $CFG->reverseproxy = (getenv('MOODLE_REVERSE_PROXY') === 'true');
+              $CFG->dboptions = ['dbport' => getenv('MOODLE_DB_PORT') ?: ''];
+              $_sslmode = getenv('MOODLE_DB_SSLMODE');
+              if ($_sslmode) { $CFG->dboptions['sslmode'] = $_sslmode; }
+                $_readonlyHosts = getenv('MOODLE_DB_READONLY_HOSTS');
+                if ($_readonlyHosts) {
+                  $_instances = [];
+                  foreach (explode(',', $_readonlyHosts) as $_host) {
+                    $_host = trim($_host);
+                    if (!$_host) { continue; }
+                    $_instances[] = [
+                      'dbhost' => $_host,
+                      'dbport' => getenv('MOODLE_DB_READONLY_PORT') ?: (getenv('MOODLE_DB_PORT') ?: '5432'),
+                      'dbuser' => getenv('MOODLE_DB_USER') ?: 'moodleuser',
+                      'dbpass' => getenv('MOODLE_DB_PASSWORD') ?: '',
+                    ];
+                  }
+                  if (!empty($_instances)) {
+                    $CFG->dboptions['readonly'] = [
+                      'instance' => $_instances,
+                      'connecttimeout' => (int)(getenv('MOODLE_DB_READONLY_CONNECTTIMEOUT') ?: '2'),
+                      'latency' => (float)(getenv('MOODLE_DB_READONLY_LATENCY') ?: '1'),
+                    ];
+                  }
+                }
+
+              // Optional Redis cache config for web pods.
+              $_redisHost = getenv('MOODLE_REDIS_HOST');
+              $_redisPort = getenv('MOODLE_REDIS_PORT') ?: '6379';
+              if ($_redisHost) {
+                  $CFG->session_handler_class = '\\core\\session\\redis';
+                  $CFG->session_redis_host = $_redisHost;
+                  $CFG->session_redis_port = (int)$_redisPort;
+                  $CFG->session_redis_database = 0;
+                  $CFG->session_redis_prefix = 'moodlesession_';
+                  $CFG->session_redis_acquire_lock_timeout = {{ .Values.redis.session.acquireLockTimeout }};
+                  $CFG->session_redis_lock_expire = {{ .Values.redis.session.lockExpire }};
+
+                  // Cache bootstrap variables; MUC store mapping is still managed by Moodle admin/CLI.
+                  $CFG->redis_cache_host = $_redisHost;
+                  $CFG->redis_cache_port = (int)$_redisPort;
+                  $CFG->redis_cache_database = {{ .Values.redis.cache.database }};
+                  $CFG->redis_cache_prefix = {{ .Values.redis.cache.hostVarPrefix | quote }};
+                  $_redisCustomScripts = getenv('MOODLE_REDIS_CUSTOMSCRIPTS');
+                  if ($_redisCustomScripts) {
+                    $CFG->customscripts = $_redisCustomScripts;
+                  }
+              }
+
+              require_once(__DIR__ . '/lib/setup.php');
+              PHP
           env:
             - name: MOODLE_DB_TYPE
               value: {{ .Values.db.type | quote }}
             - name: MOODLE_DB_HOST
+              {{- if .Values.pgbouncer.enabled }}
+              value: "127.0.0.1"
+              {{- else }}
               value: {{ .Values.db.host | quote }}
+              {{- end }}
             - name: MOODLE_DB_PORT
+              {{- if .Values.pgbouncer.enabled }}
+              value: {{ .Values.pgbouncer.listenPort | quote }}
+              {{- else }}
               value: {{ .Values.db.port | quote }}
+              {{- end }}
             - name: MOODLE_DB_NAME
               value: {{ .Values.db.name | quote }}
             - name: MOODLE_DB_USER
@@ -64,20 +142,167 @@ spec:
               value: {{ .Values.moodle.wwwroot | quote }}
             - name: MOODLE_SSL_PROXY
               value: {{ .Values.moodle.sslProxy | quote }}
+            - name: MOODLE_REVERSE_PROXY
+              value: {{ .Values.moodle.reverseProxy | quote }}
+            - name: MOODLE_DB_READONLY_HOSTS
+              value: {{ join "," .Values.db.readonlyHosts | quote }}
+            - name: MOODLE_DB_READONLY_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: MOODLE_DB_READONLY_CONNECTTIMEOUT
+              value: {{ .Values.db.readonly.connectTimeoutSeconds | quote }}
+            - name: MOODLE_DB_READONLY_LATENCY
+              value: {{ .Values.db.readonly.latencySeconds | quote }}
+            {{- if .Values.redis.enabled }}
+            - name: MOODLE_REDIS_HOST
+              value: {{ include "moodle.fullname" . }}-redis
+            - name: MOODLE_REDIS_PORT
+              value: "6379"
+            - name: MOODLE_REDIS_CUSTOMSCRIPTS
+              value: {{ .Values.redis.cache.customScriptsPath | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "moodle.fullname" . }}-db
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /mnt/app
+      containers:
+        # PHP-FPM first: kubectl exec <pod> defaults here (cli, install, cron-style debug).
+        - name: moodle
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MOODLE_DB_TYPE
+              value: {{ .Values.db.type | quote }}
+            - name: MOODLE_DB_HOST
+              {{- if .Values.pgbouncer.enabled }}
+              value: "127.0.0.1"
+              {{- else }}
+              value: {{ .Values.db.host | quote }}
+              {{- end }}
+            - name: MOODLE_DB_PORT
+              {{- if .Values.pgbouncer.enabled }}
+              value: {{ .Values.pgbouncer.listenPort | quote }}
+              {{- else }}
+              value: {{ .Values.db.port | quote }}
+              {{- end }}
+            - name: MOODLE_DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: MOODLE_DB_USER
+              value: {{ .Values.db.user | quote }}
+            {{- if .Values.db.sslmode }}
+            - name: MOODLE_DB_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            {{- end }}
+            - name: MOODLE_WWWROOT
+              value: {{ .Values.moodle.wwwroot | quote }}
+            - name: MOODLE_SSL_PROXY
+              value: {{ .Values.moodle.sslProxy | quote }}
+            - name: MOODLE_REVERSE_PROXY
+              value: {{ .Values.moodle.reverseProxy | quote }}
+            - name: MOODLE_DB_READONLY_HOSTS
+              value: {{ join "," .Values.db.readonlyHosts | quote }}
+            - name: MOODLE_DB_READONLY_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: MOODLE_DB_READONLY_CONNECTTIMEOUT
+              value: {{ .Values.db.readonly.connectTimeoutSeconds | quote }}
+            - name: MOODLE_DB_READONLY_LATENCY
+              value: {{ .Values.db.readonly.latencySeconds | quote }}
             {{- if .Values.redis.enabled }}
             - name: MOODLE_REDIS_HOST
               value: {{ include "moodle.fullname" . }}-redis
             - name: MOODLE_REDIS_PORT
               value: "6379"
             {{- end }}
+            {{- range $k, $v := .Values.phpFpm.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ include "moodle.fullname" . }}-db
           volumeMounts:
+            - name: moodle-app
+              mountPath: /var/www/html
             - name: moodledata
               mountPath: /var/www/moodledata
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.pgbouncer.enabled }}
+        - name: pgbouncer
+          image: {{ .Values.pgbouncer.image | quote }}
+          env:
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moodle.fullname" . }}-db
+                  key: MOODLE_DB_PASSWORD
+            - name: DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: DATABASE_URL
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)
+            - name: SERVER_TLS_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            - name: POOL_MODE
+              value: {{ .Values.pgbouncer.poolMode | quote }}
+            - name: MAX_CLIENT_CONN
+              value: {{ .Values.pgbouncer.maxClientConn | quote }}
+            - name: DEFAULT_POOL_SIZE
+              value: {{ .Values.pgbouncer.defaultPoolSize | quote }}
+            - name: RESERVE_POOL_SIZE
+              value: {{ .Values.pgbouncer.reservePoolSize | quote }}
+            - name: RESERVE_POOL_TIMEOUT
+              value: {{ .Values.pgbouncer.reservePoolTimeoutSeconds | quote }}
+            - name: SERVER_IDLE_TIMEOUT
+              value: {{ .Values.pgbouncer.serverIdleTimeoutSeconds | quote }}
+            - name: QUERY_WAIT_TIMEOUT
+              value: {{ .Values.pgbouncer.queryWaitTimeoutSeconds | quote }}
+            - name: LISTEN_PORT
+              value: {{ .Values.pgbouncer.listenPort | quote }}
+            - name: AUTH_TYPE
+              value: {{ .Values.pgbouncer.authType | quote }}
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: {{ .Values.pgbouncer.ignoreStartupParameters | quote }}
+          ports:
+            - name: pgbouncer
+              containerPort: {{ .Values.pgbouncer.listenPort }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.pgbouncer.resources | nindent 12 }}
+        {{- end }}
+        - name: nginx
+          image: "{{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}"
+          imagePullPolicy: {{ .Values.nginx.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /var/www/html
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: moodle.conf
+              readOnly: true
+          resources:
+            {{- toYaml .Values.nginx.resources | nindent 12 }}
           startupProbe:
             httpGet:
               path: {{ .Values.probes.startup.path }}
@@ -99,6 +324,11 @@ spec:
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
       volumes:
+        - name: moodle-app
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: {{ include "moodle.fullname" . }}-nginx
         - name: moodledata
           persistentVolumeClaim:
             claimName: {{ include "moodle.fullname" . }}-data

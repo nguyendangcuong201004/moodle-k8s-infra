@@ -7,12 +7,16 @@ metadata:
     {{- include "moodle.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.cron.schedule | quote }}
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
+  concurrencyPolicy: {{ default "Forbid" .Values.cron.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ default 1 .Values.cron.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ default 1 .Values.cron.failedJobsHistoryLimit }}
   jobTemplate:
     spec:
+      backoffLimit: {{ default 1 .Values.cron.backoffLimit }}
       activeDeadlineSeconds: {{ .Values.cron.activeDeadlineSeconds }}
+      {{- with .Values.cron.ttlSecondsAfterFinished }}
+      ttlSecondsAfterFinished: {{ . }}
+      {{- end }}
       template:
         metadata:
           labels:
@@ -41,6 +45,7 @@ spec:
                   echo '$CFG->dataroot  = "/var/www/moodledata";'
                   echo '$CFG->directorypermissions = 0777;'
                   echo '$CFG->sslproxy  = (getenv("MOODLE_SSL_PROXY") === "true");'
+                  echo '$CFG->reverseproxy = (getenv("MOODLE_REVERSE_PROXY") === "true");'
                   echo '$CFG->dboptions = ["dbport" => getenv("MOODLE_DB_PORT") ?: ""];'
                   echo '$_sslmode = getenv("MOODLE_DB_SSLMODE");'
                   echo 'if ($_sslmode) { $CFG->dboptions["sslmode"] = $_sslmode; }'
@@ -67,6 +72,8 @@ spec:
                   value: {{ .Values.moodle.wwwroot | quote }}
                 - name: MOODLE_SSL_PROXY
                   value: {{ .Values.moodle.sslProxy | quote }}
+                - name: MOODLE_REVERSE_PROXY
+                  value: {{ .Values.moodle.reverseProxy | quote }}
               envFrom:
                 - secretRef:
                     name: {{ include "moodle.fullname" . }}-db

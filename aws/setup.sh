@@ -206,7 +206,6 @@ export EFS_AP_PROD_ID
 MOODLE_DB_HOST="${DB_HOST}"
 MOODLE_DB_USER="${MOODLE_DB_USER:-moodleuser}"
 MOODLE_DB_PASSWORD="${MOODLE_DB_PASS:?Set MOODLE_DB_PASS in .env}"
-SIZE_PROFILE="${SIZE_PROFILE:-small}"
 HELM_CHART="${SCRIPT_DIR}/helm/moodle"
 
 # Create EFS StorageClass if not exists
@@ -227,10 +226,10 @@ mountOptions:
 EOF
 
 # Deploy production
-echo "Deploying production with size profile: ${SIZE_PROFILE}"
+echo "Deploying production with unified high-capacity profile (values.yaml)"
 helm upgrade --install moodle "${HELM_CHART}" \
   --namespace moodle-production --create-namespace \
-  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  -f "${HELM_CHART}/values.yaml" \
   --set db.host="${MOODLE_DB_HOST}" \
   --set db.name="${MOODLE_DB_NAME:-moodle}" \
   --set db.user="${MOODLE_DB_USER}" \
@@ -245,7 +244,7 @@ helm upgrade --install moodle "${HELM_CHART}" \
 echo "Deploying staging..."
 helm upgrade --install moodle-staging "${HELM_CHART}" \
   --namespace moodle-staging --create-namespace \
-  -f "${HELM_CHART}/values-${SIZE_PROFILE}.yaml" \
+  -f "${HELM_CHART}/values.yaml" \
   --set replicaCount=0 \
   --set db.host="${MOODLE_DB_HOST}" \
   --set db.name="${MOODLE_STAGING_DB_NAME:-moodle_staging}" \

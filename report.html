@@ -608,9 +608,9 @@
  │  ├── rds.tf, efs.tf      │                   │  ├── backup-cronjob.yaml         │
  │  └── setup.sh            │                   │  └── secret.yaml                 │
  │                          │                   │                                  │
- │  azure/                  │     helm install  │  values-small.yaml   (&lt; 1K users)│
- │  ├── aks.tf, network.tf  │ ──────────────>   │  values-medium.yaml (1K-10K)     │
- │  ├── database.tf         │                   │  values-large.yaml  (&gt; 10K)      │
+ │  azure/                  │     helm install  │  values.yaml (Unified profile)   │
+ │  ├── aks.tf, network.tf  │ ──────────────>   │  hpa.yaml (min4 max20)           │
+ │  ├── database.tf         │                   │  deployment.yaml (high-capacity) │
  │  └── setup.sh            │                   │                                  │
  └──────────────────────────┘                   └──────────────────────────────────┘
 </pre>
