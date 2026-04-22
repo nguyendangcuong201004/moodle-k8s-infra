@@ -7,11 +7,11 @@ variable "enable_node_autoscale" {
 variable "node_pool_min_nodes" {
   description = "Min nodes when autoscale enabled"
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "node_pool_max_nodes" {
   description = "Max nodes when autoscale enabled"
   type        = number
-  default     = 3
+  default     = 6
 }

@@ -77,22 +77,18 @@ jobs:
           # Install helm
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-          # Render and scan each profile
-          for profile in small medium large; do
-            echo "=== Scanning profile: ${profile} ==="
-            helm template moodle helm/moodle/ \
-              -f "helm/moodle/values-${profile}.yaml" \
-              --set db.host=test --set db.password=test \
-              --set moodle.wwwroot=https://test.example.com \
-              > "/tmp/rendered-${profile}.yaml"
+          helm template moodle helm/moodle/ \
+            -f helm/moodle/values.yaml \
+            --set db.host=test --set db.password=test \
+            --set moodle.wwwroot=https://test.example.com \
+            > /tmp/rendered.yaml
 
-            # kubesec scans individual resources, split by ---
-            csplit -z -f "/tmp/resource-${profile}-" "/tmp/rendered-${profile}.yaml" '/^---$/' '{*}' 2>/dev/null || true
-            for f in /tmp/resource-${profile}-*; do
-              [ -s "$f" ] || continue
-              kind=$(grep -m1 '^kind:' "$f" | awk '{print $2}')
-              [ "$kind" = "Deployment" ] && ./kubesec scan "$f" || true
-            done
+          # kubesec scans individual resources, split by ---
+          csplit -z -f /tmp/resource- /tmp/rendered.yaml '/^---$/' '{*}' 2>/dev/null || true
+          for f in /tmp/resource-*; do
+            [ -s "$f" ] || continue
+            kind=$(grep -m1 '^kind:' "$f" | awk '{print $2}')
+            [ "$kind" = "Deployment" ] && ./kubesec scan "$f" || true
           done
 
   helm-validate:
@@ -106,24 +102,10 @@ jobs:
       - name: Helm lint
         run: helm lint helm/moodle/
 
-      - name: Helm template (small)
+      - name: Helm template (unified)
         run: |
           helm template moodle helm/moodle/ \
-            -f helm/moodle/values-small.yaml \
-            --set db.host=test --set db.password=test \
-            --set moodle.wwwroot=https://test.example.com > /dev/null
-
-      - name: Helm template (medium)
-        run: |
-          helm template moodle helm/moodle/ \
-            -f helm/moodle/values-medium.yaml \
-            --set db.host=test --set db.password=test \
-            --set moodle.wwwroot=https://test.example.com > /dev/null
-
-      - name: Helm template (large)
-        run: |
-          helm template moodle helm/moodle/ \
-            -f helm/moodle/values-large.yaml \
+            -f helm/moodle/values.yaml \
             --set db.host=test --set db.password=test \
             --set moodle.wwwroot=https://test.example.com > /dev/null
 

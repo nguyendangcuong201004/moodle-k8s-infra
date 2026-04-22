@@ -8,6 +8,9 @@ set -euo pipefail
 # Usage:
 #   ./use-kubectl.sh aws
 #   ./use-kubectl.sh do [staging|production]   # default: production
+#
+# DigitalOcean: after copying kubeconfig, sets default namespace to moodle
+# (override with KUBECTL_DEFAULT_NAMESPACE in .env if needed).
 
 if [[ $# -lt 1 ]]; then
   echo "Usage:"
@@ -124,6 +127,11 @@ case "${PROVIDER}" in
 
     cp "${DO_KUBECONFIG}" "${HOME}/.kube/config"
     echo "Copied ${DO_KUBECONFIG} to ${HOME}/.kube/config (workspace: ${DO_WORKSPACE})"
+
+    # Moodle Helm release lives in namespace moodle (see digitalocean/setup.sh)
+    DO_DEFAULT_NS="${KUBECTL_DEFAULT_NAMESPACE:-moodle}"
+    kubectl config set-context --current --namespace="${DO_DEFAULT_NS}"
+    echo "Default namespace for current context: ${DO_DEFAULT_NS}"
     ;;
 
   *)

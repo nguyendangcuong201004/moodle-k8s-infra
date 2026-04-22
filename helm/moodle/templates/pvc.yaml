@@ -1,13 +1,24 @@
+{{- $pvcName := printf "%s-data" (include "moodle.fullname" .) -}}
+{{- $existingPVC := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $pvcName -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "moodle.fullname" . }}-data
+  name: {{ $pvcName }}
   labels:
     {{- include "moodle.labels" . | nindent 4 }}
 spec:
+  {{- /* Keep immutable fields stable when PVC already exists. */}}
   accessModes:
+    {{- if and $existingPVC $existingPVC.spec $existingPVC.spec.accessModes }}
+    {{- range $mode := $existingPVC.spec.accessModes }}
+    - {{ $mode }}
+    {{- end }}
+    {{- else }}
     - {{ .Values.persistence.accessMode }}
-  {{- if .Values.persistence.storageClass }}
+    {{- end }}
+  {{- if and $existingPVC $existingPVC.spec $existingPVC.spec.storageClassName }}
+  storageClassName: {{ $existingPVC.spec.storageClassName | quote }}
+  {{- else if .Values.persistence.storageClass }}
   storageClassName: {{ .Values.persistence.storageClass | quote }}
   {{- end }}
   resources:

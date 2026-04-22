@@ -1,5 +1,10 @@
 data "digitalocean_kubernetes_versions" "main" {}
 
+resource "random_integer" "name_suffix" {
+  min = 10000
+  max = 99999
+}
+
 resource "digitalocean_kubernetes_cluster" "moodle_cluster" {
   name    = "moodle-cluster-${terraform.workspace}-${random_integer.name_suffix.result}"
   region  = var.region

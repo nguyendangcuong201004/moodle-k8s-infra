@@ -1,13 +1,13 @@
 variable "node_pool_size" {
   description = "Droplet size for node pool (e.g. s-2vcpu-4gb)"
   type        = string
-  default     = "s-2vcpu-4gb"
+  default     = "s-4vcpu-8gb"
 }
 
 variable "node_pool_count" {
   description = "Number of nodes in node pool"
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "db_size" {
@@ -20,5 +20,28 @@ variable "db_node_count" {
   description = "Number of nodes in DB cluster"
   type        = number
   default     = 1
+}
+
+variable "enable_db_connection_pool" {
+  description = "Enable DigitalOcean managed PgBouncer connection pooling"
+  type        = bool
+  default     = true
+}
+
+variable "db_connection_pool_mode" {
+  description = "Connection pool mode (session|transaction|statement)"
+  type        = string
+  default     = "session"
+
+  validation {
+    condition     = contains(["session", "transaction", "statement"], var.db_connection_pool_mode)
+    error_message = "db_connection_pool_mode must be one of: session, transaction, statement."
+  }
+}
+
+variable "db_connection_pool_size" {
+  description = "Max server connections in the managed connection pool"
+  type        = number
+  default     = 40
 }
 
