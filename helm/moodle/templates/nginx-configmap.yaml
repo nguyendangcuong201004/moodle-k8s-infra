@@ -9,6 +9,9 @@ data:
     server {
         listen 80;
         server_name _;
+        # root = public/ so DOCUMENT_ROOT passes Moodle 4.x security check.
+        # SCRIPT_FILENAME is set separately to /var/www/html so PHP-FPM can
+        # reach theme/, lib/ and other files that live outside of public/.
         root /var/www/html/public;
         index index.php;
 
@@ -24,14 +27,18 @@ data:
             try_files $uri $uri/ /index.php?$query_string;
         }
 
-        # Optional PATH_INFO group: /script.php without trailing path still matches (avoids FPM "Primary script unknown" → 404).
         location ~ [^/]\.php(/|$) {
-            try_files $uri =404;
             fastcgi_split_path_info ^(.+\.php)(/.+)?$;
             fastcgi_pass 127.0.0.1:9000;
             fastcgi_index index.php;
             include fastcgi_params;
-            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            # Default: serve from Moodle root (covers theme/, lib/, admin/, etc.)
+            set $moodle_script /var/www/html$fastcgi_script_name;
+            # If the file exists in public/ (e.g. index.php), use public/ path instead.
+            if (-f /var/www/html/public$fastcgi_script_name) {
+                set $moodle_script /var/www/html/public$fastcgi_script_name;
+            }
+            fastcgi_param SCRIPT_FILENAME $moodle_script;
             fastcgi_param PATH_INFO $fastcgi_path_info;
             fastcgi_read_timeout 300;
             fastcgi_send_timeout 300;
