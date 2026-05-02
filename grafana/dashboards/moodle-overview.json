@@ -234,7 +234,108 @@
         }
       }
     }
+    ,
+    {
+      "id": 9,
+      "title": "Synthetic Probe - Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum(rate(k6_http_reqs_total{testid=\"moodle-synthetic\"}[5m]))",
+          "legendFormat": "req/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line" } } }
+    },
+    {
+      "id": 10,
+      "title": "Synthetic Probe - Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 32 },
+      "targets": [
+        {
+          "expr": "k6_http_req_duration_avg{testid=\"moodle-synthetic\"}",
+          "legendFormat": "avg",
+          "refId": "A"
+        },
+        {
+          "expr": "k6_http_req_duration_p95{testid=\"moodle-synthetic\"}",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "k6_http_req_duration_p99{testid=\"moodle-synthetic\"}",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 2 } }
+    },
+    {
+      "id": 11,
+      "title": "Synthetic Probe - Failure Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 32 },
+      "targets": [
+        {
+          "expr": "k6_http_req_failed_rate{testid=\"moodle-synthetic\"}",
+          "legendFormat": "failed rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 4 } }
+    },
+    {
+      "id": 12,
+      "title": "Synthetic Probe - Checks Pass Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 38 },
+      "targets": [
+        {
+          "expr": "k6_checks_rate{testid=\"moodle-synthetic\"}",
+          "legendFormat": "checks pass rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 4 } }
+    },
+    {
+      "id": 13,
+      "title": "Synthetic Probe - Iterations / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 38 },
+      "targets": [
+        {
+          "expr": "rate(k6_iterations_total{testid=\"moodle-synthetic\"}[5m])",
+          "legendFormat": "iters/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2 } }
+    },
+    {
+      "id": 14,
+      "title": "Synthetic Probe - Active VUs",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 38 },
+      "targets": [
+        {
+          "expr": "k6_vus{testid=\"moodle-synthetic\"}",
+          "legendFormat": "vus",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } }
+    }
   ],
+  "annotations": {},
+  "panelsExtended": [],
+  "editable": true,
+  "gnetId": null,
+  "uid": null,
+  "links": [],
   "schemaVersion": 39,
   "version": 1
 }

@@ -90,21 +90,25 @@ spec:
                   }
                 }
 
-              // Optional Redis cache config for web pods.
-              $_redisHost = getenv('MOODLE_REDIS_HOST');
-              $_redisPort = getenv('MOODLE_REDIS_PORT') ?: '6379';
-              if ($_redisHost) {
+              // Optional Redis session/cache config for web pods.
+              $_sessionRedisHost = getenv('MOODLE_REDIS_SESSION_HOST');
+              $_sessionRedisPort = getenv('MOODLE_REDIS_SESSION_PORT') ?: '6379';
+              if ($_sessionRedisHost) {
                   $CFG->session_handler_class = '\\core\\session\\redis';
-                  $CFG->session_redis_host = $_redisHost;
-                  $CFG->session_redis_port = (int)$_redisPort;
+                  $CFG->session_redis_host = $_sessionRedisHost;
+                  $CFG->session_redis_port = (int)$_sessionRedisPort;
                   $CFG->session_redis_database = 0;
                   $CFG->session_redis_prefix = 'moodlesession_';
                   $CFG->session_redis_acquire_lock_timeout = {{ .Values.redis.session.acquireLockTimeout }};
                   $CFG->session_redis_lock_expire = {{ .Values.redis.session.lockExpire }};
+              }
 
-                  // Cache bootstrap variables; MUC store mapping is still managed by Moodle admin/CLI.
-                  $CFG->redis_cache_host = $_redisHost;
-                  $CFG->redis_cache_port = (int)$_redisPort;
+              $_cacheRedisHost = getenv('MOODLE_REDIS_CACHE_HOST');
+              $_cacheRedisPort = getenv('MOODLE_REDIS_CACHE_PORT') ?: '6379';
+              if ($_cacheRedisHost) {
+                  // Cache bootstrap variables; MUC store mapping is managed by cache-setup hook.
+                  $CFG->redis_cache_host = $_cacheRedisHost;
+                  $CFG->redis_cache_port = (int)$_cacheRedisPort;
                   $CFG->redis_cache_database = {{ .Values.redis.cache.database }};
                   $CFG->redis_cache_prefix = {{ .Values.redis.cache.hostVarPrefix | quote }};
                   $_redisCustomScripts = getenv('MOODLE_REDIS_CUSTOMSCRIPTS');
@@ -153,9 +157,13 @@ spec:
             - name: MOODLE_DB_READONLY_LATENCY
               value: {{ .Values.db.readonly.latencySeconds | quote }}
             {{- if .Values.redis.enabled }}
-            - name: MOODLE_REDIS_HOST
-              value: {{ include "moodle.fullname" . }}-redis
-            - name: MOODLE_REDIS_PORT
+            - name: MOODLE_REDIS_SESSION_HOST
+              value: {{ include "moodle.fullname" . }}-{{ .Values.redis.session.serviceNameSuffix }}
+            - name: MOODLE_REDIS_SESSION_PORT
+              value: "6379"
+            - name: MOODLE_REDIS_CACHE_HOST
+              value: {{ include "moodle.fullname" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+            - name: MOODLE_REDIS_CACHE_PORT
               value: "6379"
             - name: MOODLE_REDIS_CUSTOMSCRIPTS
               value: {{ .Values.redis.cache.customScriptsPath | quote }}
@@ -209,9 +217,13 @@ spec:
             - name: MOODLE_DB_READONLY_LATENCY
               value: {{ .Values.db.readonly.latencySeconds | quote }}
             {{- if .Values.redis.enabled }}
-            - name: MOODLE_REDIS_HOST
-              value: {{ include "moodle.fullname" . }}-redis
-            - name: MOODLE_REDIS_PORT
+            - name: MOODLE_REDIS_SESSION_HOST
+              value: {{ include "moodle.fullname" . }}-{{ .Values.redis.session.serviceNameSuffix }}
+            - name: MOODLE_REDIS_SESSION_PORT
+              value: "6379"
+            - name: MOODLE_REDIS_CACHE_HOST
+              value: {{ include "moodle.fullname" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+            - name: MOODLE_REDIS_CACHE_PORT
               value: "6379"
             {{- end }}
             {{- range $k, $v := .Values.phpFpm.env }}
@@ -269,6 +281,10 @@ spec:
               value: {{ .Values.pgbouncer.authType | quote }}
             - name: IGNORE_STARTUP_PARAMETERS
               value: {{ .Values.pgbouncer.ignoreStartupParameters | quote }}
+            - name: STATS_USERS
+              value: {{ .Values.db.user | quote }}
+            - name: ADMIN_USERS
+              value: {{ .Values.db.user | quote }}
           ports:
             - name: pgbouncer
               containerPort: {{ .Values.pgbouncer.listenPort }}
@@ -285,6 +301,57 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.pgbouncer.resources | nindent 12 }}
+        {{- if and .Values.metrics.enabled .Values.metrics.pgbouncerExporter.enabled }}
+        - name: pgbouncer-exporter
+          image: {{ .Values.metrics.pgbouncerExporter.image | quote }}
+          env:
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moodle.fullname" . }}-db
+                  key: MOODLE_DB_PASSWORD
+            # Exporter DSN; sslmode=disable — PgBouncer admin listens plain on the pod.
+            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@127.0.0.1:{{ .Values.pgbouncer.listenPort }}/pgbouncer?sslmode=disable
+          args:
+            - --pgBouncer.connectionString=$(PGBOUNCER_EXPORTER_CONNECTION_STRING)
+            - --web.listen-address=:{{ .Values.metrics.pgbouncerExporter.port }}
+          ports:
+            - name: pgb-metrics
+              containerPort: {{ .Values.metrics.pgbouncerExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: pgb-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.metrics.pgbouncerExporter.resources | nindent 12 }}
+        {{- end }}
+        {{- end }}
+        {{- if and .Values.metrics.enabled .Values.metrics.phpFpmExporter.enabled }}
+        - name: php-fpm-exporter
+          image: {{ .Values.metrics.phpFpmExporter.image | quote }}
+          env:
+            - name: PHP_FPM_SCRAPE_URI
+              value: tcp://127.0.0.1:9000{{ .Values.metrics.phpFpmExporter.statusPath }}
+            - name: PHP_FPM_FIX_PROCESS_COUNT
+              value: "true"
+          ports:
+            - name: fpm-metrics
+              containerPort: {{ .Values.metrics.phpFpmExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: fpm-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.metrics.phpFpmExporter.resources | nindent 12 }}
         {{- end }}
         - name: nginx
           image: "{{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}"

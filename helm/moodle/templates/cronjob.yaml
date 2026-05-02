@@ -24,6 +24,14 @@ spec:
             role: cron
         spec:
           restartPolicy: Never
+          initContainers:
+            - name: copy-moodle-app
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: [sh, -c, "cp -a /var/www/html/. /moodle-html/"]
+              volumeMounts:
+                - name: moodle-html
+                  mountPath: /moodle-html
           containers:
             - name: moodle-cron
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -32,26 +40,28 @@ spec:
                 - bash
                 - -c
                 - |
-                  {
-                  echo '<?php'
-                  echo 'unset($CFG); global $CFG; $CFG = new stdClass();'
-                  echo '$CFG->dbtype    = getenv("MOODLE_DB_TYPE");'
-                  echo '$CFG->dbhost    = getenv("MOODLE_DB_HOST");'
-                  echo '$CFG->dbname    = getenv("MOODLE_DB_NAME") ?: "moodle";'
-                  echo '$CFG->dbuser    = getenv("MOODLE_DB_USER") ?: "moodleuser";'
-                  echo '$CFG->dbpass    = getenv("MOODLE_DB_PASSWORD");'
-                  echo '$CFG->prefix    = "mdl_";'
-                  echo '$CFG->wwwroot   = getenv("MOODLE_WWWROOT");'
-                  echo '$CFG->dataroot  = "/var/www/moodledata";'
-                  echo '$CFG->directorypermissions = 0777;'
-                  echo '$CFG->sslproxy  = (getenv("MOODLE_SSL_PROXY") === "true");'
-                  echo '$CFG->reverseproxy = (getenv("MOODLE_REVERSE_PROXY") === "true");'
-                  echo '$CFG->dboptions = ["dbport" => getenv("MOODLE_DB_PORT") ?: ""];'
-                  echo '$_sslmode = getenv("MOODLE_DB_SSLMODE");'
-                  echo 'if ($_sslmode) { $CFG->dboptions["sslmode"] = $_sslmode; }'
-                  echo '// Redis cache configured in web pods only (cron has no HTTP sessions)'
-                  echo 'require_once(__DIR__ . "/lib/setup.php");'
-                  } > /var/www/html/config.php
+                  # config.php on emptyDir — web pods keep their own /var/www/html
+                  cat > /moodle-html/config.php <<'EOF'
+                  <?php
+                  unset($CFG); global $CFG; $CFG = new stdClass();
+                  $CFG->dbtype    = getenv('MOODLE_DB_TYPE');
+                  $CFG->dbhost    = getenv('MOODLE_DB_HOST');
+                  $CFG->dbname    = getenv('MOODLE_DB_NAME') ?: 'moodle';
+                  $CFG->dbuser    = getenv('MOODLE_DB_USER') ?: 'moodleuser';
+                  $CFG->dbpass    = getenv('MOODLE_DB_PASSWORD');
+                  $CFG->prefix    = 'mdl_';
+                  $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
+                  $CFG->dataroot  = '/var/www/moodledata';
+                  $CFG->directorypermissions = 0777;
+                  $CFG->sslproxy        = (getenv('MOODLE_SSL_PROXY') === 'true');
+                  $CFG->reverseproxy    = (getenv('MOODLE_REVERSE_PROXY') === 'true');
+                  $CFG->routerconfigured = true;
+                  $CFG->dboptions = ['dbport' => getenv('MOODLE_DB_PORT') ?: ''];
+                  $_ssl = getenv('MOODLE_DB_SSLMODE');
+                  if ($_ssl) { $CFG->dboptions['sslmode'] = $_ssl; }
+                  require_once(__DIR__ . '/lib/setup.php');
+                  EOF
+                  cd /moodle-html
                   runuser -u www-data -- php admin/cli/cron.php --force
               env:
                 - name: MOODLE_DB_TYPE
@@ -78,11 +88,15 @@ spec:
                 - secretRef:
                     name: {{ include "moodle.fullname" . }}-db
               volumeMounts:
+                - name: moodle-html
+                  mountPath: /moodle-html
                 - name: moodledata
                   mountPath: /var/www/moodledata
               resources:
                 {{- toYaml .Values.cron.resources | nindent 16 }}
           volumes:
+            - name: moodle-html
+              emptyDir: {}
             - name: moodledata
               persistentVolumeClaim:
                 claimName: {{ include "moodle.fullname" . }}-data

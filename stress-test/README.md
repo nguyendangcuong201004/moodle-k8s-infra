@@ -1,69 +1,42 @@
-## Moodle Capacity Test (k6)
+# Stress test (k6)
 
-This folder contains a basic capacity test for Moodle running on any Kubernetes cluster (DigitalOcean, AWS, etc.). The only required input is the public Moodle URL (domain or load balancer address).
+**Requires:** `k6`, `jq`, `kubectl` (for seeding), and `moodle-k8s-infra/.env` with `MOODLE_WWWROOT` (same site you want to load-test).
 
-## Files
+## 1. Seed (before any `auth_quiz` run)
 
-- `k6-moodle.js`: k6 scenario that repeatedly requests:
-  - `/`
-  - `/login/index.php`
-  (used by the main `run-stress-test.sh` at repo root)
-
-## Prerequisites
-
-- `k6`
-- `jq`
-- Reachable Moodle URL (LoadBalancer DNS/IP)
-
-## Quick Start
-
-1. Mở file `stress-params.env` trong thư mục này và chỉnh các tham số:
-  - `START_VUS`, `STEP_VUS`, `MAX_VUS`
-  - `STEP_RAMP`, `STEP_HOLD`
-  - `MAX_P95_MS`, `MAX_FAIL_RATE`, `ABORT_DELAY`
-2. Đảm bảo file `.env` ở repo root có `MOODLE_WWWROOT` trỏ đến domain Moodle.
-3. Chạy:
+From a machine with cluster access (web pod must be running):
 
 ```bash
 cd moodle-k8s-infra/stress-test
+./seed-auth-quiz-data.sh
+```
+
+Common env overrides: `NAMESPACE`, `USER_PREFIX`, `USER_COUNT`, `USER_PASSWORD`, `COURSE_SHORTNAME`, `COURSE_FULLNAME`, `QUIZ_NAME`. The script prints **`COURSE_ID`**, **`QUIZ_CMID`**, and a sample `run-stress-test` line.
+
+Set in **`stress-params.env`** (or export):
+
+- `COURSE_PATH=/course/view.php?id=<COURSE_ID>`
+- `QUIZ_PATH=/mod/quiz/view.php?id=<QUIZ_CMID>`
+
+(IDs must match the seeded course/quiz.)
+
+## 2. Run
+
+```bash
+# edit stress-params.env: paths, VUs, thresholds
 ./run-stress-test.sh
 ```
 
-## Optional tuning
+Logs: `results/run-*.log`. With `PROFILE=auth_quiz`, the scenario is: home → login → course → quiz → attempt → **POST** `processattempt` → summary → quiz (see `k6-moodle.js`).
 
-Các tham số mặc định nằm trong `stress-params.env`. Chỉ cần sửa file đó rồi chạy `run-stress-test.sh` là đủ. 
+## 3. Tweaks
 
-### Example: DigitalOcean K8s (DOKS)
+| Variable | Role |
+|----------|------|
+| `STAIRCASE_PLAN_PRESET` | Stair stages (`duration:vus,...`) |
+| `MAX_P95_MS`, `MAX_FAIL_RATE` | Abort thresholds |
+| `THINK_*` | Pause between steps |
 
-```bash
-cd moodle-k8s-infra
-./run-stress-test.sh
-```
+Other profiles: `PROFILE=mixed|home|login` (GET-heavy only).
 
-Default staircase profile currently starts at `50` VUs and increases by `50` each step
-(`50 -> 100 -> 150 -> ...`) until `MAX_VUS`.
-
-### Example: AWS EKS / ALB
-
-```bash
-cd moodle-k8s-infra
-BASE_URL="https://your-aws-alb-dns.example.com" ./run-stress-test.sh
-```
-
-## Behavior
-
-- Script chạy **1 lần duy nhất** theo kiểu staircase (tăng tải theo bậc).
-- Không có pha giảm user dần (không ramp-down).
-- Khi vượt ngưỡng SLA, k6 sẽ **abort ngay lập tức** (không chờ chạy vòng tiếp).
-
-## How to interpret result
-
-- `Status: PASS to MAX_VUS`: chưa vượt ngưỡng tới mức cao nhất đã cấu hình.
-- `Status: ABORTED on first threshold breach`: đã chạm giới hạn và dừng ngay.
-- Detailed outputs are stored in `results/` (summary + log của một lần chạy).
-
-## Notes
-
-- This script tests anonymous browsing endpoints only.
-- If you need authenticated-user scenarios (real login, course view, quiz submit), extend `k6-moodle.js` with login flow and session handling.
-
+Deploy stack first: [../README.md](../README.md) (DigitalOcean).

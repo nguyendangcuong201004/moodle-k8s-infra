@@ -1,0 +1,353 @@
+{{- if and .Values.redis.enabled .Values.redis.cache.enabled .Values.cacheSetup.enabled }}
+# ---------------------------------------------------------------------------
+# ConfigMap: PHP script that wires Moodle MUC to Redis as the application
+# cache store. Runs as a Helm post-install / post-upgrade Job so:
+#   - DB is already accessible (pod readiness gates passed)
+#   - Safe/idempotent: exits 0 if store already configured
+#   - Non-blocking: if Moodle is not yet installed the script exits 0
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moodle.fullname" . }}-cache-setup
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  setup-cache.php: |
+    <?php
+    /**
+     * Auto-configure Moodle MUC to use a 2-tier cache:
+     *   L1 = APCu (in-process, per-pod, ~0.001ms)
+     *   L2 = Redis (network, shared across pods, ~0.5-1ms RTT)
+     *
+     * Application-mode reads hit APCu first; on miss they fall through to
+     * Redis and are populated back into APCu. This dramatically cuts Redis
+     * RPS for hot-static keys (lang strings, config, plugintypes, capabilities).
+     *
+     * Idempotent - safe to run on every deploy.
+     */
+    define('CLI_SCRIPT', true);
+
+    $dirroot = '/var/www/html';
+    if (!file_exists($dirroot . '/lib/setup.php')) {
+        echo "[cache-setup] Moodle dirroot not ready at $dirroot. Skipping.\n";
+        exit(0);
+    }
+
+    // Build a minimal runtime config from env to avoid depending on any
+    // placeholder config.php that may exist in the image layer.
+    unset($CFG);
+    global $CFG;
+    $CFG = new stdClass();
+    $CFG->dbtype = getenv('MOODLE_DB_TYPE') ?: 'pgsql';
+    $CFG->dblibrary = 'native';
+    $CFG->dbhost = getenv('MOODLE_DB_HOST');
+    $CFG->dbname = getenv('MOODLE_DB_NAME') ?: 'moodle';
+    $CFG->dbuser = getenv('MOODLE_DB_USER') ?: 'moodleuser';
+    $CFG->dbpass = getenv('MOODLE_DB_PASSWORD') ?: '';
+    $CFG->prefix = 'mdl_';
+    $CFG->wwwroot = getenv('MOODLE_WWWROOT');
+    $CFG->dataroot = '/var/www/moodledata';
+    $CFG->directorypermissions = 0777;
+    $CFG->sslproxy = (getenv('MOODLE_SSL_PROXY') === 'true');
+    $CFG->dboptions = ['dbport' => getenv('MOODLE_DB_PORT') ?: '5432'];
+    $_ssl = getenv('MOODLE_DB_SSLMODE');
+    if ($_ssl) {
+        $CFG->dboptions['sslmode'] = $_ssl;
+    }
+    $CFG->dirroot = $dirroot;
+    $CFG->libdir = $dirroot . '/lib';
+
+    $redisHost = getenv('MOODLE_REDIS_CACHE_HOST');
+    if (empty($redisHost)) {
+        echo "[cache-setup] MOODLE_REDIS_CACHE_HOST not set. Skipping.\n";
+        exit(0);
+    }
+
+    $redisPort      = (int)(getenv('MOODLE_REDIS_CACHE_PORT') ?: 6379);
+    $cacheDb        = (int)(getenv('MOODLE_REDIS_CACHE_DB') ?: 1);
+    $prefix         = getenv('MOODLE_REDIS_CACHE_PREFIX') ?: 'moodlecache_';
+    $redisStoreName = 'redis_k8s_app';
+    $apcuStoreName  = 'local_apcu_app';
+
+    // Moodle bootstrap (sets up $DB global etc.)
+    try {
+        require_once($dirroot . '/lib/setup.php');
+    } catch (Throwable $e) {
+        echo "[cache-setup] Moodle bootstrap failed (DB not ready?): " . $e->getMessage() . "\n";
+        exit(0); // Non-fatal – cron will retry next deploy
+    }
+
+    // Verify DB is accessible before touching cache config
+    try {
+        $DB->get_record('config', ['name' => 'dbversion']);
+    } catch (Throwable $e) {
+        echo "[cache-setup] DB not accessible: " . $e->getMessage() . "\n";
+        exit(0);
+    }
+
+    try {
+        $writer = cache_config_writer::instance();
+        $stores = $writer->get_all_stores();
+        $changed = false;
+
+        // --- 1. Redis store (L2) ---
+        if (!array_key_exists($redisStoreName, $stores)) {
+            echo "[cache-setup] Adding Redis store '$redisStoreName' ($redisHost:$redisPort db=$cacheDb) ...\n";
+            $ok = $writer->add_store_instance($redisStoreName, 'redis', [
+                'server'     => "$redisHost:$redisPort",
+                'prefix'     => $prefix,
+                'database'   => $cacheDb,
+                'password'   => '',
+                'serializer' => 1, // PHP serializer
+                'compressor' => 0,
+            ]);
+            if (!$ok) {
+                echo "[cache-setup] FAILED to add Redis store (check Redis connectivity).\n";
+                exit(1);
+            }
+            $changed = true;
+            echo "[cache-setup] Redis store added.\n";
+        } else {
+            echo "[cache-setup] Redis store '$redisStoreName' already exists.\n";
+        }
+
+        // --- 2. APCu store (L1) — only if extension is loaded ---
+        $apcuAvailable = extension_loaded('apcu')
+            && function_exists('apcu_fetch')
+            && (PHP_SAPI === 'cli' ? ini_get('apc.enable_cli') : ini_get('apc.enabled'));
+
+        if ($apcuAvailable) {
+            if (!array_key_exists($apcuStoreName, $stores)) {
+                echo "[cache-setup] Adding APCu store '$apcuStoreName' ...\n";
+                $ok = $writer->add_store_instance($apcuStoreName, 'apcu', [
+                    'prefix' => 'mdl_apcu_',
+                ]);
+                if (!$ok) {
+                    echo "[cache-setup] WARNING: failed to add APCu store; continuing with Redis only.\n";
+                } else {
+                    $changed = true;
+                    echo "[cache-setup] APCu store added.\n";
+                }
+            } else {
+                echo "[cache-setup] APCu store '$apcuStoreName' already exists.\n";
+            }
+        } else {
+            echo "[cache-setup] APCu extension not available in this CLI sandbox; will still wire web pods.\n";
+        }
+
+        // Refresh stores list after possible add_store_instance calls
+        $stores = $writer->get_all_stores();
+
+        // --- 3. Mode mapping for MODE_APPLICATION ---
+        // Desired order: APCu (if present) -> Redis. Multilevel store auto-walks.
+        $desired = [];
+        if (array_key_exists($apcuStoreName, $stores)) {
+            $desired[] = $apcuStoreName;
+        }
+        if (array_key_exists($redisStoreName, $stores)) {
+            $desired[] = $redisStoreName;
+        }
+
+        $mappings    = $writer->get_mode_mappings();
+        $currentApp  = [];
+        foreach ($mappings as $m) {
+            if ((int)$m['mode'] === cache_store::MODE_APPLICATION) {
+                $currentApp[] = $m['store'];
+            }
+        }
+
+        if ($currentApp !== $desired) {
+            echo "[cache-setup] Mapping application-mode cache → " . implode(' + ', $desired) . " ...\n";
+            // Preserve non-application modes and overwrite application mode only.
+            $newMappings = [
+                cache_store::MODE_APPLICATION => $desired,
+            ];
+            foreach ($mappings as $m) {
+                $mode = (int)$m['mode'];
+                if ($mode === cache_store::MODE_APPLICATION) {
+                    continue;
+                }
+                if (!array_key_exists($mode, $newMappings)) {
+                    $newMappings[$mode] = [];
+                }
+                $newMappings[$mode][] = $m['store'];
+            }
+            $writer->set_mode_mappings($newMappings);
+            $changed = true;
+
+            // Purge so caches rebuild into the new tier order.
+            cache_helper::purge_all(false);
+            echo "[cache-setup] Application-mode mappings updated and caches purged.\n";
+        } else {
+            echo "[cache-setup] Application-mode mapping already correct (" . implode(' + ', $currentApp) . ").\n";
+        }
+
+        echo "[cache-setup] Done." . ($changed ? " (changes applied)" : " (no-op)") . "\n";
+        exit(0);
+
+    } catch (Throwable $e) {
+        echo "[cache-setup] ERROR: " . $e->getMessage() . "\n";
+        // Exit 1 so Helm marks the hook as failed (visible in `helm status`),
+        // but the main deployment is NOT rolled back.
+        exit(1);
+    }
+---
+# ---------------------------------------------------------------------------
+# Job: runs the PHP script above as a Helm post-install/post-upgrade hook.
+# Uses the same Moodle image so all PHP extensions & the app source are
+# available. Mounts the shared app volume that was populated by the
+# copy-moodle-app init-container.
+# ---------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "moodle.fullname" . }}-cache-setup
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "moodle.selectorLabels" . | nindent 8 }}
+        role: cache-setup
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Populate /var/www/html exactly as the main Deployment does.
+        - name: copy-moodle-app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - cp -a /var/www/html/. /mnt/app/ && echo "App copied."
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /mnt/app
+        - name: write-config
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              cat > /mnt/app/config.php <<'PHP'
+              <?php
+              unset($CFG); global $CFG; $CFG = new stdClass();
+              $CFG->dbtype    = getenv('MOODLE_DB_TYPE');
+              $CFG->dblibrary = 'native';
+              $CFG->dbhost    = getenv('MOODLE_DB_HOST');
+              $CFG->dbname    = getenv('MOODLE_DB_NAME') ?: 'moodle';
+              $CFG->dbuser    = getenv('MOODLE_DB_USER') ?: 'moodleuser';
+              $CFG->dbpass    = getenv('MOODLE_DB_PASSWORD');
+              $CFG->prefix    = 'mdl_';
+              $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
+              $CFG->dataroot  = '/var/www/moodledata';
+              $CFG->directorypermissions = 0777;
+              $CFG->sslproxy  = (getenv('MOODLE_SSL_PROXY') === 'true');
+              $CFG->dboptions = ['dbport' => getenv('MOODLE_DB_PORT') ?: '5432'];
+              $_ssl = getenv('MOODLE_DB_SSLMODE');
+              if ($_ssl) { $CFG->dboptions['sslmode'] = $_ssl; }
+              require_once(__DIR__ . '/lib/setup.php');
+              PHP
+          env:
+            - name: MOODLE_DB_TYPE
+              value: {{ .Values.db.type | quote }}
+            - name: MOODLE_DB_HOST
+              {{- if .Values.pgbouncer.enabled }}
+              value: {{ .Values.db.host | quote }}
+              {{- else }}
+              value: {{ .Values.db.host | quote }}
+              {{- end }}
+            - name: MOODLE_DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: MOODLE_DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: MOODLE_DB_USER
+              value: {{ .Values.db.user | quote }}
+            {{- if .Values.db.sslmode }}
+            - name: MOODLE_DB_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            {{- end }}
+            - name: MOODLE_WWWROOT
+              value: {{ .Values.moodle.wwwroot | quote }}
+            - name: MOODLE_SSL_PROXY
+              value: {{ .Values.moodle.sslProxy | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "moodle.fullname" . }}-db
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /mnt/app
+      containers:
+        - name: setup
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - php
+            - /scripts/setup-cache.php
+          env:
+            - name: MOODLE_REDIS_CACHE_HOST
+              value: {{ include "moodle.fullname" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+            - name: MOODLE_REDIS_CACHE_PORT
+              value: "6379"
+            - name: MOODLE_REDIS_CACHE_DB
+              value: {{ .Values.redis.cache.database | quote }}
+            - name: MOODLE_REDIS_CACHE_PREFIX
+              value: {{ .Values.redis.cache.hostVarPrefix | quote }}
+            - name: MOODLE_DB_TYPE
+              value: {{ .Values.db.type | quote }}
+            - name: MOODLE_DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: MOODLE_DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: MOODLE_DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: MOODLE_DB_USER
+              value: {{ .Values.db.user | quote }}
+            {{- if .Values.db.sslmode }}
+            - name: MOODLE_DB_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            {{- end }}
+            - name: MOODLE_WWWROOT
+              value: {{ .Values.moodle.wwwroot | quote }}
+            - name: MOODLE_SSL_PROXY
+              value: {{ .Values.moodle.sslProxy | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "moodle.fullname" . }}-db
+          volumeMounts:
+            - name: moodle-app
+              mountPath: /var/www/html
+            - name: moodledata
+              mountPath: /var/www/moodledata
+            - name: cache-script
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: moodle-app
+          emptyDir: {}
+        - name: moodledata
+          persistentVolumeClaim:
+            claimName: {{ include "moodle.fullname" . }}-data
+        - name: cache-script
+          configMap:
+            name: {{ include "moodle.fullname" . }}-cache-setup
+{{- end }}

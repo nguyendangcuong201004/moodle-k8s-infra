@@ -1,7 +1,7 @@
 # HCMUT Moodle LMS - Default Helm Values
 # Override per cloud via setup.sh --set flags or custom values files.
 
-replicaCount: 3
+replicaCount: 6
 
 image:
   repository: ndcuongdevops/moodle-lms
@@ -25,13 +25,11 @@ phpFpm:
   env:
     OPCACHE_MEMORY: "512"
     FPM_PM_CONTROL: "dynamic"
-    # Bound per-pod concurrency to reduce DB wait/lock amplification under burst traffic.
-    FPM_MAX_CHILDREN: "24"
-    FPM_START_SERVERS: "6"
-    FPM_MIN_SPARE: "4"
-    FPM_MAX_SPARE: "8"
+    FPM_MAX_CHILDREN: "60"
+    FPM_START_SERVERS: "16"
+    FPM_MIN_SPARE: "12"
+    FPM_MAX_SPARE: "24"
 
-# Database configuration (REQUIRED: host, password)
 db:
   type: pgsql
   host: ""
@@ -46,6 +44,8 @@ db:
     latencySeconds: 1
 
 # PgBouncer sidecar in each web pod: app -> localhost:6432 -> managed Postgres
+# When using DO managed pool (pgbouncer.enabled=false), pool size is set in Terraform (default 85).
+# With sidecar: keep replicaCount × defaultPoolSize under the DB connection limit (e.g. 6×14 ≈ 84 < 97).
 pgbouncer:
   enabled: true
   image: edoburu/pgbouncer:latest
@@ -54,7 +54,7 @@ pgbouncer:
   authType: scram-sha-256
   poolMode: session
   maxClientConn: 1200
-  defaultPoolSize: 20
+  defaultPoolSize: 14
   reservePoolSize: 3
   reservePoolTimeoutSeconds: 3
   serverIdleTimeoutSeconds: 30
@@ -96,22 +96,22 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 
-# Resource requests and limits
+# Moodle (PHP-FPM) requests/limits — favour vertical scaling on beefy nodes over many tiny pods.
+# Target nodes >= 4 vCPU / 8 GiB (DO); on smaller nodes lower limits e.g. cpu=2, memory=3Gi.
 resources:
   requests:
-    cpu: 500m
-    memory: 768Mi
+    cpu: 1000m
+    memory: 1536Mi
   limits:
-    cpu: 1800m
-    memory: 2560Mi
+    cpu: 2500m
+    memory: 4Gi
 
-# Horizontal Pod Autoscaler
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 6
   maxReplicas: 6
-  targetCPUUtilizationPercentage: 45
-  targetMemoryUtilizationPercentage: 75
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
   # Custom metrics via Prometheus (requires prometheus-adapter)
   customMetrics:
     enabled: false
@@ -175,13 +175,12 @@ cron:
       cpu: 500m
       memory: 1Gi
 
-# Redis for Moodle session + application cache
+cacheSetup:
+  enabled: true
+
 redis:
   enabled: true
   image: redis:7-alpine
-  # Keep maxmemory below pod memory limit to avoid OOMKills during bursts.
-  maxmemory: 768mb
-  maxmemoryPolicy: allkeys-lru
   tcpBacklog: 1024
   timeoutSeconds: 300
   tcpKeepaliveSeconds: 60
@@ -211,21 +210,38 @@ redis:
                     - moodle
             topologyKey: kubernetes.io/hostname
   session:
+    enabled: true
+    serviceNameSuffix: redis-session
+    # Session Redis should reject writes when full instead of evicting live sessions.
+    maxmemory: 256mb
+    maxmemoryPolicy: noeviction
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
     acquireLockTimeout: 60
     lockExpire: 7200
   cache:
+    enabled: true
+    serviceNameSuffix: redis-cache
+    # Cache Redis can evict least-frequently-used keys under pressure.
+    maxmemory: 512mb
+    maxmemoryPolicy: allkeys-lfu
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 800m
+        memory: 1024Mi
     # These values are exported to config.php as bootstrap hints.
-    # Actual MUC store mapping must be configured in Moodle UI/CLI.
+    # Actual MUC store mapping is handled by cache-setup hook.
     hostVarPrefix: "moodlecache_"
     database: 1
     customScriptsPath: ""
-  resources:
-    requests:
-      cpu: 200m
-      memory: 768Mi
-    limits:
-      cpu: 800m
-      memory: 1024Mi
 
 # Database backup (pg_dump via CronJob)
 backup:
@@ -246,3 +262,52 @@ strategy:
   rollingUpdate:
     maxUnavailable: 1
     maxSurge: 0
+
+metrics:
+  enabled: true
+
+  phpFpmExporter:
+    enabled: true
+    image: hipages/php-fpm_exporter:2.2.0
+    statusPath: /status
+    pingPath: /ping
+    port: 9253
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  pgbouncerExporter:
+    enabled: true
+    image: prometheuscommunity/pgbouncer-exporter:v0.12.0
+    port: 9127
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  redisExporter:
+    enabled: true
+    image: oliver006/redis_exporter:v1.62.0
+    port: 9121
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  # PodMonitor CRs (Prometheus Operator). Disable if you scrape only via annotations.
+  podMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    additionalLabels:
+      release: kube-prometheus-stack

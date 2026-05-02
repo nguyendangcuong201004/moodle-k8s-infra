@@ -50,7 +50,6 @@ case "${PROVIDER}" in
 
     CLUSTER_NAME="${EKS_CLUSTER_NAME:-}"
 
-    # Nếu .env có EKS_CLUSTER_NAME thì dùng luôn
     if [[ -n "${CLUSTER_NAME}" ]]; then
       :
     else

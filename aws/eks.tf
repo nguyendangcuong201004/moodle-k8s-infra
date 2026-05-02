@@ -66,7 +66,7 @@ resource "aws_eks_node_group" "moodle_nodes" {
 
   scaling_config {
     desired_size = 2
-    max_size     = 4 # Tăng lên 4 để có chỗ khi staging chạy cùng production
+    max_size     = 4 # room for staging + production node groups
     min_size     = 1
   }
 

@@ -11,9 +11,15 @@ variable "node_pool_count" {
 }
 
 variable "db_size" {
-  description = "Managed PostgreSQL plan size"
+  description = "Managed PostgreSQL plan size (db-s-2vcpu-4gb ≈ $48/mo: 97 conn limit, min 60 GiB storage)"
   type        = string
   default     = "db-s-2vcpu-4gb"
+}
+
+variable "db_storage_size_mib" {
+  description = "Managed PostgreSQL storage size in MiB (60 GiB minimum for db-s-2vcpu-4gb)"
+  type        = number
+  default     = 61440
 }
 
 variable "db_node_count" {
@@ -40,8 +46,8 @@ variable "db_connection_pool_mode" {
 }
 
 variable "db_connection_pool_size" {
-  description = "Max server connections in the managed connection pool"
+  description = "Max server connections in the managed connection pool (≤ ~85 recommended for 97 conn cluster limit)"
   type        = number
-  default     = 40
+  default     = 85
 }
 

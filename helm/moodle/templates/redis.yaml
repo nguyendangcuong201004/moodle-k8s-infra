@@ -1,22 +1,24 @@
 {{- if .Values.redis.enabled }}
+{{- if .Values.redis.session.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "moodle.fullname" . }}-redis
+  name: {{ include "moodle.fullname" . }}-{{ .Values.redis.session.serviceNameSuffix }}
   labels:
     {{- include "moodle.labels" . | nindent 4 }}
-    app.kubernetes.io/component: redis
+    app.kubernetes.io/component: redis-session
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "moodle.name" . }}-redis
+      app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.session.serviceNameSuffix }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "moodle.name" . }}-redis
+        app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.session.serviceNameSuffix }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: redis-session
     spec:
       {{- if .Values.redis.priorityClassName }}
       priorityClassName: {{ .Values.redis.priorityClassName | quote }}
@@ -40,9 +42,9 @@ spec:
           command: ["redis-server"]
           args:
             - "--maxmemory"
-            - {{ .Values.redis.maxmemory | quote }}
+            - {{ .Values.redis.session.maxmemory | quote }}
             - "--maxmemory-policy"
-            - {{ .Values.redis.maxmemoryPolicy | quote }}
+            - {{ .Values.redis.session.maxmemoryPolicy | quote }}
             - "--tcp-backlog"
             - {{ .Values.redis.tcpBacklog | quote }}
             - "--timeout"
@@ -64,7 +66,7 @@ spec:
             - "--io-threads-do-reads"
             - {{ ternary "yes" "no" .Values.redis.ioThreadsDoReads | quote }}
           resources:
-            {{- toYaml .Values.redis.resources | nindent 12 }}
+            {{- toYaml .Values.redis.session.resources | nindent 12 }}
           readinessProbe:
             tcpSocket:
               port: redis
@@ -75,14 +77,35 @@ spec:
               port: redis
             initialDelaySeconds: 15
             periodSeconds: 20
+        {{- if and .Values.metrics.enabled .Values.metrics.redisExporter.enabled }}
+        - name: redis-exporter
+          image: {{ .Values.metrics.redisExporter.image | quote }}
+          env:
+            - name: REDIS_ADDR
+              value: redis://127.0.0.1:6379
+            - name: REDIS_EXPORTER_INCL_SYSTEM_METRICS
+              value: "true"
+          ports:
+            - name: redis-metrics
+              containerPort: {{ .Values.metrics.redisExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: redis-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.metrics.redisExporter.resources | nindent 12 }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "moodle.fullname" . }}-redis
+  name: {{ include "moodle.fullname" . }}-{{ .Values.redis.session.serviceNameSuffix }}
   labels:
     {{- include "moodle.labels" . | nindent 4 }}
-    app.kubernetes.io/component: redis
+    app.kubernetes.io/component: redis-session
 spec:
   type: ClusterIP
   ports:
@@ -90,6 +113,127 @@ spec:
       targetPort: redis
       name: redis
   selector:
-    app.kubernetes.io/name: {{ include "moodle.name" . }}-redis
+    app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.session.serviceNameSuffix }}
     app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- if and .Values.redis.session.enabled .Values.redis.cache.enabled }}
+---
+{{- end }}
+{{- if .Values.redis.cache.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moodle.fullname" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: redis-cache
+    spec:
+      {{- if .Values.redis.priorityClassName }}
+      priorityClassName: {{ .Values.redis.priorityClassName | quote }}
+      {{- end }}
+      {{- with .Values.redis.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.redis.podSecurityContext.enableSysctls }}
+      securityContext:
+        sysctls:
+          - name: net.core.somaxconn
+            value: {{ .Values.redis.podSecurityContext.netCoreSomaxconn | quote }}
+      {{- end }}
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          ports:
+            - containerPort: 6379
+              name: redis
+          command: ["redis-server"]
+          args:
+            - "--maxmemory"
+            - {{ .Values.redis.cache.maxmemory | quote }}
+            - "--maxmemory-policy"
+            - {{ .Values.redis.cache.maxmemoryPolicy | quote }}
+            - "--tcp-backlog"
+            - {{ .Values.redis.tcpBacklog | quote }}
+            - "--timeout"
+            - {{ .Values.redis.timeoutSeconds | quote }}
+            - "--tcp-keepalive"
+            - {{ .Values.redis.tcpKeepaliveSeconds | quote }}
+            - "--activedefrag"
+            - {{ ternary "yes" "no" .Values.redis.activeDefrag | quote }}
+            - "--lazyfree-lazy-eviction"
+            - {{ ternary "yes" "no" .Values.redis.lazyfreeLazyEviction | quote }}
+            - "--lazyfree-lazy-expire"
+            - {{ ternary "yes" "no" .Values.redis.lazyfreeLazyExpire | quote }}
+            - "--save"
+            - {{ .Values.redis.save | quote }}
+            - "--appendonly"
+            - {{ .Values.redis.appendonly | quote }}
+            - "--io-threads"
+            - {{ .Values.redis.ioThreads | quote }}
+            - "--io-threads-do-reads"
+            - {{ ternary "yes" "no" .Values.redis.ioThreadsDoReads | quote }}
+          resources:
+            {{- toYaml .Values.redis.cache.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 15
+            periodSeconds: 20
+        {{- if and .Values.metrics.enabled .Values.metrics.redisExporter.enabled }}
+        - name: redis-exporter
+          image: {{ .Values.metrics.redisExporter.image | quote }}
+          env:
+            - name: REDIS_ADDR
+              value: redis://127.0.0.1:6379
+            - name: REDIS_EXPORTER_INCL_SYSTEM_METRICS
+              value: "true"
+          ports:
+            - name: redis-metrics
+              containerPort: {{ .Values.metrics.redisExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: redis-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.metrics.redisExporter.resources | nindent 12 }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moodle.fullname" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-cache
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: redis
+      name: redis
+  selector:
+    app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
 {{- end }}
