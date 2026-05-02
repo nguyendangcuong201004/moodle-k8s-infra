@@ -1,10 +1,11 @@
 resource "digitalocean_database_cluster" "moodle_db" {
-  name       = "moodle-db-postgres-${terraform.workspace}-${random_integer.name_suffix.result}"
-  engine     = "pg"
-  version    = "16"
-  size       = var.db_size
-  region     = var.region
-  node_count = var.db_node_count
+  name             = "moodle-db-postgres-${terraform.workspace}-${random_integer.name_suffix.result}"
+  engine           = "pg"
+  version          = "16"
+  size             = var.db_size
+  storage_size_mib = var.db_storage_size_mib
+  region           = var.region
+  node_count       = var.db_node_count
 }
 
 resource "digitalocean_database_db" "moodle" {
@@ -26,11 +27,6 @@ resource "digitalocean_database_connection_pool" "moodle" {
   size       = var.db_connection_pool_size
   db_name    = digitalocean_database_db.moodle.name
   user       = digitalocean_database_user.moodle.name
-}
-
-data "digitalocean_database_user" "moodle" {
-  cluster_id = digitalocean_database_cluster.moodle_db.id
-  name       = digitalocean_database_user.moodle.name
 }
 
 output "db_cluster_id" {
@@ -57,7 +53,7 @@ output "db_user" {
 
 output "db_password" {
   description = "Auto-generated DB user password"
-  value       = data.digitalocean_database_user.moodle.password
+  value       = digitalocean_database_user.moodle.password
   sensitive   = true
 }
 

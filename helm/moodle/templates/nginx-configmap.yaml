@@ -7,40 +7,66 @@ metadata:
 data:
   moodle.conf: |
     server {
-        listen 80;
-        server_name _;
-        # root = public/ so DOCUMENT_ROOT passes Moodle 4.x security check.
-        # SCRIPT_FILENAME is set separately to /var/www/html so PHP-FPM can
-        # reach theme/, lib/ and other files that live outside of public/.
-        root /var/www/html/public;
-        index index.php;
+      listen 80;
+      server_name _;
+      root /var/www/html/public;
+      index index.php;
 
-        client_max_body_size 100m;
+      client_max_body_size 2048m;
 
-        # Lightweight endpoint for K8s probes (avoids Moodle/DB-dependent 404s on /login/...).
-        location = /nginx-health {
-            default_type text/plain;
-            return 200 "ok\n";
+      gzip on;
+      gzip_types text/plain text/css application/javascript application/json
+                 image/svg+xml font/woff2;
+      gzip_min_length 1024;
+
+      location = /nginx-health {
+        default_type text/plain;
+        return 200 "ok\n";
+      }
+
+      # FPM status/ping (localhost only). Exporter hits FastCGI :9000 directly, not these paths.
+      location = /fpm-status {
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME $fastcgi_script_name;
+      }
+      location = /fpm-ping {
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME $fastcgi_script_name;
+      }
+
+      location ~ (/vendor/|/node_modules/|composer\.json|/\.git|/\.ht) {
+        deny all; return 404;
+      }
+
+      location / {
+        try_files $uri $uri/ /index.php?$query_string;
+      }
+
+      location ~ [^/]\.php(/|$) {
+        fastcgi_split_path_info ^(.+\.php)(/.+)?$;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+
+        set $moodle_script /var/www/html$fastcgi_script_name;
+        if (-f /var/www/html/public$fastcgi_script_name) {
+          set $moodle_script /var/www/html/public$fastcgi_script_name;
         }
+        fastcgi_param SCRIPT_FILENAME $moodle_script;        
+        fastcgi_param DOCUMENT_ROOT   /var/www/html;
+        fastcgi_param PATH_INFO       $fastcgi_path_info;
 
-        location / {
-            try_files $uri $uri/ /index.php?$query_string;
-        }
-
-        location ~ [^/]\.php(/|$) {
-            fastcgi_split_path_info ^(.+\.php)(/.+)?$;
-            fastcgi_pass 127.0.0.1:9000;
-            fastcgi_index index.php;
-            include fastcgi_params;
-            # Default: serve from Moodle root (covers theme/, lib/, admin/, etc.)
-            set $moodle_script /var/www/html$fastcgi_script_name;
-            # If the file exists in public/ (e.g. index.php), use public/ path instead.
-            if (-f /var/www/html/public$fastcgi_script_name) {
-                set $moodle_script /var/www/html/public$fastcgi_script_name;
-            }
-            fastcgi_param SCRIPT_FILENAME $moodle_script;
-            fastcgi_param PATH_INFO $fastcgi_path_info;
-            fastcgi_read_timeout 300;
-            fastcgi_send_timeout 300;
-        }
+        fastcgi_read_timeout  600;
+        fastcgi_send_timeout  600;
+        fastcgi_buffer_size   128k;
+        fastcgi_buffers       8 128k;
+      }
     }

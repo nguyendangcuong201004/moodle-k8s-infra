@@ -503,16 +503,16 @@
 <!-- NAV -->
 <nav>
   <ul>
-    <li><a href="#overview">Tong quan</a></li>
-    <li><a href="#architecture">Kien truc</a></li>
-    <li><a href="#multicloud">Da dam may</a></li>
-    <li><a href="#scaling">Tu dong mo rong</a></li>
-    <li><a href="#monitoring">Giam sat</a></li>
-    <li><a href="#backup">Sao luu</a></li>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#multicloud">Multicloud</a></li>
+    <li><a href="#scaling">Autoscaling</a></li>
+    <li><a href="#monitoring">Monitoring</a></li>
+    <li><a href="#backup">Backup</a></li>
     <li><a href="#cicd">CI/CD</a></li>
-    <li><a href="#stress">Kiem thu tai</a></li>
-    <li><a href="#timeline">Tien trinh</a></li>
-    <li><a href="#tech">Cong nghe</a></li>
+    <li><a href="#stress">Load test</a></li>
+    <li><a href="#timeline">Timeline</a></li>
+    <li><a href="#tech">Stack</a></li>
   </ul>
 </nav>
 
@@ -774,16 +774,16 @@
   <pre><code># Mo rong bat doi xung: tang nhanh, giam cham
 behavior:
   scaleUp:
-    stabilizationWindowSeconds: 60    # Phan hoi nhanh khi co tai
+    stabilizationWindowSeconds: 60    # fast reaction under load
     policies:
       - type: Pods
-        value: 2                       # Them toi da 2 pod moi lan
+        value: 2                       # add at most 2 pods per step
         periodSeconds: 60
   scaleDown:
-    stabilizationWindowSeconds: 300   # Cho 5 phut truoc khi giam
+    stabilizationWindowSeconds: 300   # 5 min before scale-down
     policies:
       - type: Pods
-        value: 1                       # Chi giam 1 pod moi lan
+        value: 1                       # remove at most 1 pod per step
         periodSeconds: 120</code></pre>
 </section>
 
@@ -840,25 +840,25 @@ behavior:
   <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
     <div class="card">
       <h3>Sao luu</h3>
-      <pre><code># Sao luu tu dong hang ngay (CronJob luc 2 gio sang)
-# Sao luu thu cong:
-./backup.sh production          # Voi thoi gian
-./backup.sh production latest   # Chi giu ban moi nhat
+      <pre><code># Nightly backup (CronJob 02:00)
+# On demand:
+./backup.sh production          # with timestamp
+./backup.sh production latest   # keep only latest
 
-# Ket qua: backups/production-moodle-20260325.sql.gz</code></pre>
+# Output: backups/production-moodle-20260325.sql.gz</code></pre>
       <p style="margin-top:1rem">Su dung <code>pg_dump</code> nen gzip qua pod Kubernetes tam thoi. Luu tru cau hinh duoc (mac dinh: 7 ngay).</p>
     </div>
     <div class="card">
       <h3>Khoi phuc</h3>
-      <pre><code># Khoi phuc tu ban sao luu:
+      <pre><code># Restore from dump:
 ./restore.sh production backups/file.sql.gz
 
-# Quy trinh:
-# 1. Giam pod Moodle xuong 0
-# 2. Tam dung CronJob
-# 3. Xoa va khoi phuc schema
-# 4. Tang pod tro lai
-# 5. Xac nhan qua kiem tra phien ban</code></pre>
+# Steps:
+# 1. Scale Moodle pods to 0
+# 2. Suspend CronJob
+# 3. Drop and restore schema
+# 4. Scale pods back
+# 5. Verify (version check)</code></pre>
       <p style="margin-top:1rem">Khoi phuc khong gian doan voi quan ly pod tu dong. Cung dinh dang sao luu hoat dong tren tat ca nha cung cap dam may.</p>
     </div>
   </div>

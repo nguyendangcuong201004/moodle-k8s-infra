@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Single source of config; sourced by setup.sh (do not execute directly).
+
+WORKSPACE="${1:-}"
+[[ "${WORKSPACE}" != "staging" && "${WORKSPACE}" != "production" ]] \
+  && { echo "Usage: setup.sh <staging|production>"; exit 1; }
+
+DO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR="$(cd "${DO_DIR}/.." && pwd)"
+HELM_CHART="${INFRA_DIR}/helm/moodle"
+DASHBOARDS_DIR="${INFRA_DIR}/grafana/dashboards"
+KUBECONFIG_FILE="${DO_DIR}/kubeconfig-${WORKSPACE}"
+
+[[ -f "${INFRA_DIR}/.env" ]] && { set -a; source "${INFRA_DIR}/.env"; set +a; }
+
+: "${DO_TOKEN:?Set DO_TOKEN in .env}"
+export TF_VAR_do_token="${DO_TOKEN}"
+
+ADMIN_USER="${MOODLE_ADMIN_USER:?Set MOODLE_ADMIN_USER in .env}"
+ADMIN_PASS="${MOODLE_ADMIN_PASS:?Set MOODLE_ADMIN_PASS in .env}"
+ADMIN_EMAIL="${MOODLE_ADMIN_EMAIL:?Set MOODLE_ADMIN_EMAIL in .env}"
+
+[[ "${WORKSPACE}" == "production" ]] \
+  && SITE_URL="${MOODLE_WWWROOT:?Set MOODLE_WWWROOT in .env}" \
+  || SITE_URL="${MOODLE_STAGING_WWWROOT:?Set MOODLE_STAGING_WWWROOT in .env}"
+
+INGRESS_HOST="${SITE_URL#https://}"; INGRESS_HOST="${INGRESS_HOST#http://}"
+EXTERNAL_DNS_HOSTNAME="${INGRESS_HOST%%/*}"
+
+# DB — filled after terraform apply (helpers.sh)
+DB_HOST="" DB_PORT="" DB_PASS="" DB_NAME="" DB_CLUSTER_ID="" LB_NAME=""
+DB_USER="${MOODLE_DB_USER:-moodleuser}"
+DB_POOL_HOST="" DB_POOL_NAME="" DB_POOL_PORT="0" DB_POOL_PASS=""
+DB_APP_HOST="" DB_APP_PORT="" DB_APP_PASS="" DB_APP_NAME="" DB_READONLY_HOST=""
+USE_MANAGED_POOL="false"
+MOODLE_USE_MANAGED_POOL="${MOODLE_USE_MANAGED_POOL:-false}"
+MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-false}"
+
+# PgBouncer sidecar when not using managed pool
+PGBOUNCER_POOL_MODE="${PGBOUNCER_POOL_MODE:-session}"
+PGBOUNCER_AUTH_TYPE="${PGBOUNCER_AUTH_TYPE:-scram-sha-256}"
+# Per-pod upstream limit; ~floor(85/replicaCount) for 97-conn tier when using sidecar (not managed pool).
+PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-14}"
+PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-5}"
+PGBOUNCER_MAX_CLIENT_CONN="${PGBOUNCER_MAX_CLIENT_CONN:-2000}"
+
+# Grafana Cloud (optional)
+GRAFANA_CLOUD_API_KEY="${GRAFANA_CLOUD_API_KEY:-}"
+GRAFANA_CLOUD_PROM_URL="${GRAFANA_CLOUD_PROM_URL:-}"
+GRAFANA_CLOUD_PROM_USERNAME="${GRAFANA_CLOUD_PROM_USERNAME:-}"
+GRAFANA_CLOUD_TOKEN="${GRAFANA_CLOUD_TOKEN:-}"
+GRAFANA_CLOUD_URL="${GRAFANA_CLOUD_URL:-}"
+
+# Kubernetes
+MOODLE_NAMESPACE="moodle"
+MOODLE_EXEC_CONTAINER="${MOODLE_K8S_MAIN_CONTAINER:-moodle}"
+# role=web excludes CronJob pods (role=cron); otherwise wait/exec may hit a cron pod first.
+MOODLE_WEB_SELECTOR="app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web"
+MOODLE_POD=""
+
+# Timing
+STEP4_MAX_WAIT_SEC="${MOODLE_STEP4_MAX_WAIT_SEC:-1800}"
+STEP4_POLL_SEC="${MOODLE_STEP4_POLL_SEC:-10}"
+
+# Plugins to disable (keep e.g. quiz, resource/page, folder, url, assign, h5p)
+MOODLE_DISABLED_PLUGINS=(
+  mod_chat mod_scorm mod_workshop mod_data mod_wiki mod_glossary
+  mod_survey mod_choice mod_lesson mod_imscp mod_lti mod_feedback
+  mod_bigbluebuttonbn
+)

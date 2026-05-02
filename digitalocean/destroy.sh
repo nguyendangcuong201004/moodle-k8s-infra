@@ -114,5 +114,3 @@ fi
 
 echo ""
 echo "=== Destroy complete ==="
-echo "If you had KUBECONFIG=${DO_DIR}/kubeconfig-do set, you may unset it: unset KUBECONFIG"
-echo "Longhorn volumes go with the PVC; to uninstall Longhorn: kubectl delete -f https://raw.githubusercontent.com/longhorn/longhorn/v1.11.0/deploy/longhorn.yaml"

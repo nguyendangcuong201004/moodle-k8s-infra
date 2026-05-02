@@ -1,0 +1,108 @@
+{{- if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled }}
+{{- if or .Values.metrics.phpFpmExporter.enabled (and .Values.pgbouncer.enabled .Values.metrics.pgbouncerExporter.enabled) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "moodle.fullname" . }}-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "moodle.selectorLabels" . | nindent 6 }}
+      role: web
+  podMetricsEndpoints:
+    {{- if .Values.metrics.phpFpmExporter.enabled }}
+    - port: fpm-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: php-fpm
+    {{- end }}
+    {{- if and .Values.pgbouncer.enabled .Values.metrics.pgbouncerExporter.enabled }}
+    - port: pgb-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: pgbouncer
+    {{- end }}
+{{- end }}
+{{- if and .Values.redis.enabled .Values.metrics.redisExporter.enabled .Values.redis.session.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "moodle.fullname" . }}-redis-session
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-session
+    {{- with .Values.metrics.podMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.session.serviceNameSuffix }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  podMetricsEndpoints:
+    - port: redis-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: redis-session
+{{- end }}
+{{- if and .Values.redis.enabled .Values.metrics.redisExporter.enabled .Values.redis.cache.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "moodle.fullname" . }}-redis-cache
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-cache
+    {{- with .Values.metrics.podMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "moodle.name" . }}-{{ .Values.redis.cache.serviceNameSuffix }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  podMetricsEndpoints:
+    - port: redis-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: redis-cache
+{{- end }}
+{{- end }}
