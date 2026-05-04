@@ -8,6 +8,9 @@ MOODLE_CONTAINER="${MOODLE_CONTAINER:-moodle}"
 USER_PREFIX="${USER_PREFIX:-user}"
 USER_PASSWORD="${USER_PASSWORD:-123456}"
 USER_COUNT="${USER_COUNT:-100}"
+TEACHER_PREFIX="${TEACHER_PREFIX:-teacher}"
+TEACHER_PASSWORD="${TEACHER_PASSWORD:-123456}"
+TEACHER_COUNT="${TEACHER_COUNT:-10}"
 COURSE_SHORTNAME="${COURSE_SHORTNAME:-TOAN101}"
 COURSE_FULLNAME="${COURSE_FULLNAME:-BASIC MATH}"
 QUIZ_NAME="${QUIZ_NAME:-BASIC MATH QUIZ}"
@@ -22,6 +25,21 @@ if ! [[ "${USER_COUNT}" =~ ^[0-9]+$ ]] || (( USER_COUNT <= 0 )); then
   exit 1
 fi
 
+# Auto-detect KUBECONFIG from repo if not already set
+if [[ -z "${KUBECONFIG:-}" ]]; then
+  ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  for _kc in \
+    "${ROOT_DIR}/digitalocean/kubeconfig-production" \
+    "${ROOT_DIR}/digitalocean/kubeconfig-staging" \
+    "${ROOT_DIR}/digitalocean/kubeconfig"; do
+    if [[ -f "${_kc}" ]]; then
+      export KUBECONFIG="${_kc}"
+      echo "Auto-detected KUBECONFIG=${KUBECONFIG}"
+      break
+    fi
+  done
+fi
+
 POD="${MOODLE_POD:-}"
 if [[ -z "${POD}" ]]; then
   POD="$(kubectl -n "${NAMESPACE}" get pod -l 'app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web' \
@@ -29,12 +47,12 @@ if [[ -z "${POD}" ]]; then
 fi
 
 if [[ -z "${POD}" ]]; then
-  echo "Cannot find Moodle web pod. Set MOODLE_POD explicitly."
+  echo "Cannot find Moodle web pod. Set MOODLE_POD explicitly or export KUBECONFIG."
   exit 1
 fi
 
 echo "Using pod: ${POD}"
-echo "Generating ${USER_COUNT} users (${USER_PREFIX}0001...)"
+echo "Generating ${USER_COUNT} students (${USER_PREFIX}0001...) and ${TEACHER_COUNT} teachers (${TEACHER_PREFIX}0001...)"
 
 kubectl -n "${NAMESPACE}" exec -i "${POD}" -c "${MOODLE_CONTAINER}" -- sh -c "cat > /tmp/seed_k6_auth_quiz.php" <<'PHP'
 <?php
@@ -53,6 +71,9 @@ require_once($CFG->libdir . '/moodlelib.php');
     'userprefix' => 'user',
     'userpassword' => '123456',
     'usercount' => 100,
+    'teacherprefix' => 'teacher',
+    'teacherpassword' => '123456',
+    'teachercount' => 10,
     'courseshortname' => 'TOAN101',
     'coursefullname' => 'Mon Toan Co Ban',
     'quizname' => 'Quiz Toan Co Ban',
@@ -61,12 +82,20 @@ require_once($CFG->libdir . '/moodlelib.php');
 $userprefix = (string)$options['userprefix'];
 $userpassword = (string)$options['userpassword'];
 $usercount = (int)$options['usercount'];
+$teacherprefix = (string)$options['teacherprefix'];
+$teacherpassword = (string)$options['teacherpassword'];
+$teachercount = (int)$options['teachercount'];
 $courseshortname = (string)$options['courseshortname'];
 $coursefullname = (string)$options['coursefullname'];
 $quizname = (string)$options['quizname'];
 
 if ($usercount < 1) {
     fwrite(STDERR, "usercount must be >= 1\n");
+    exit(1);
+}
+
+if ($teachercount < 1) {
+    fwrite(STDERR, "teachercount must be >= 1\n");
     exit(1);
 }
 
@@ -127,6 +156,48 @@ for ($i = 1; $i <= $usercount; $i++) {
 
     if (!is_enrolled(context_course::instance($course->id), $user->id)) {
         enrol_try_internal_enrol($course->id, $user->id, $studentroleid);
+    }
+}
+
+echo "STEP=teachers\n";
+$teacherroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'editingteacher'], IGNORE_MISSING);
+if (!$teacherroleid) {
+    $teacherroleid = 3;
+}
+
+for ($i = 1; $i <= $teachercount; $i++) {
+    $suffix = str_pad((string)$i, 4, '0', STR_PAD_LEFT);
+    $username = $teacherprefix . $suffix;
+    $email = $username . '@load.local';
+
+    $user = $DB->get_record('user', ['username' => $username, 'deleted' => 0]);
+    if (!$user) {
+        $newuser = (object)[
+            'auth' => 'manual',
+            'confirmed' => 1,
+            'username' => $username,
+            'password' => hash_internal_user_password($teacherpassword),
+            'firstname' => 'K6',
+            'lastname' => "Teacher{$suffix}",
+            'email' => $email,
+            'mnethostid' => $CFG->mnet_localhost_id,
+            'lang' => 'en',
+            'maildisplay' => 2,
+            'mailformat' => 1,
+            'maildigest' => 0,
+            'autosubscribe' => 1,
+            'trackforums' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $newuser->id = user_create_user($newuser, false, false);
+        $user = $newuser;
+    } else if (!validate_internal_user_password($user, $teacherpassword)) {
+        update_internal_user_password($user, $teacherpassword);
+    }
+
+    if (!is_enrolled(context_course::instance($course->id), $user->id)) {
+        enrol_try_internal_enrol($course->id, $user->id, $teacherroleid);
     }
 }
 
@@ -352,6 +423,11 @@ $reason = '';
 $ok = authenticate_user_login($firstusername, $userpassword, false, $reason, false);
 echo "LOGIN_TEST=" . ($ok ? 'ok' : 'fail') . "\n";
 echo "LOGIN_TEST_USER={$firstusername}\n";
+$firstteacher = $teacherprefix . str_pad('1', 4, '0', STR_PAD_LEFT);
+$treason = '';
+$tok = authenticate_user_login($firstteacher, $teacherpassword, false, $treason, false);
+echo "TEACHER_LOGIN_TEST=" . ($tok ? 'ok' : 'fail') . "\n";
+echo "TEACHER_LOGIN_TEST_USER={$firstteacher}\n";
 PHP
 
 set +e
@@ -361,6 +437,9 @@ SEED_OUTPUT="$(
       --userprefix="${USER_PREFIX}" \
       --userpassword="${USER_PASSWORD}" \
       --usercount="${USER_COUNT}" \
+      --teacherprefix="${TEACHER_PREFIX}" \
+      --teacherpassword="${TEACHER_PASSWORD}" \
+      --teachercount="${TEACHER_COUNT}" \
       --courseshortname="${COURSE_SHORTNAME}" \
       --coursefullname="${COURSE_FULLNAME}" \
       --quizname="${QUIZ_NAME}" 2>&1
@@ -379,6 +458,7 @@ echo "${SEED_OUTPUT}"
 COURSE_ID="$(printf '%s\n' "${SEED_OUTPUT}" | awk -F= '/^COURSE_ID=/{print $2}' | tail -n 1)"
 QUIZ_CMID="$(printf '%s\n' "${SEED_OUTPUT}" | awk -F= '/^QUIZ_CMID=/{print $2}' | tail -n 1)"
 LOGIN_TEST="$(printf '%s\n' "${SEED_OUTPUT}" | awk -F= '/^LOGIN_TEST=/{print $2}' | tail -n 1)"
+TEACHER_LOGIN_TEST="$(printf '%s\n' "${SEED_OUTPUT}" | awk -F= '/^TEACHER_LOGIN_TEST=/{print $2}' | tail -n 1)"
 
 if [[ -z "${COURSE_ID}" || -z "${QUIZ_CMID}" ]]; then
   echo "Seed failed: COURSE_ID/QUIZ_CMID not found in output."
@@ -390,6 +470,14 @@ if [[ "${LOGIN_TEST}" != "ok" ]]; then
   exit 1
 fi
 
+if [[ "${TEACHER_LOGIN_TEST}" != "ok" ]]; then
+  echo "Seed failed: TEACHER_LOGIN_TEST is not ok."
+  exit 1
+fi
+
 echo "Done."
-echo "Run k6 with:"
+echo "Run k6 (students only):"
 echo "  PROFILE=auth_quiz QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} ./run-stress-test.sh"
+echo ""
+echo "Run k6 (mixed students + teachers):"
+echo "  PROFILE=mixed_roles QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} COURSE_PATH=/course/view.php?id=${COURSE_ID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} TEACHER_USER_PREFIX=${TEACHER_PREFIX} TEACHER_USER_COUNT=${TEACHER_COUNT} TEACHER_USER_PASSWORD=${TEACHER_PASSWORD} TEACHER_RATIO_PCT=20 ./run-stress-test.sh"

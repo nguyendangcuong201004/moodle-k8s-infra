@@ -99,11 +99,12 @@ step_prometheus() {
     --set grafana.resources.requests.cpu=50m \
     --set grafana.resources.requests.memory=128Mi \
     --set grafana.resources.limits.cpu=200m \
-    --set grafana.resources.limits.memory=256Mi \
+    --set grafana.resources.limits.memory=512Mi \
     --set grafana.persistence.enabled=false \
     --set grafana.env.GF_LOG_LEVEL=error \
     --set grafana.env.GF_LOG_MODE=console \
     --set grafana.env.GF_PATHS_LOGS=/dev/null \
+    --set grafana.env.GF_AUTH_BASIC_ENABLED=true \
     --set alertmanager.enabled=false \
     --set nodeExporter.enabled=true \
     --set kubeStateMetrics.enabled=true \

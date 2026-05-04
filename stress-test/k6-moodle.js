@@ -26,6 +26,11 @@ const AUTH_USER_PASSWORD = __ENV.AUTH_USER_PASSWORD || '123456';
 const QUIZ_DO_SUBMIT = (__ENV.QUIZ_DO_SUBMIT || 'true').toLowerCase() === 'true';
 const QUIZ_TEXT_ANSWER = __ENV.QUIZ_TEXT_ANSWER || '2';
 const QUIZ_TEXT_ANSWERS_RAW = (__ENV.QUIZ_TEXT_ANSWERS || '2,4,8').trim();
+const TEACHER_USER_PREFIX   = __ENV.TEACHER_USER_PREFIX || 'teacher';
+const TEACHER_USER_START    = Number(__ENV.TEACHER_USER_START || 1);
+const TEACHER_USER_COUNT    = Number(__ENV.TEACHER_USER_COUNT || 10);
+const TEACHER_USER_PASSWORD = __ENV.TEACHER_USER_PASSWORD || '123456';
+const TEACHER_RATIO_PCT     = Number(__ENV.TEACHER_RATIO_PCT || 20);
 
 function envThinkMinMax(prefix, defMin, defMax) {
   const mn = Number(__ENV[`${prefix}_MIN_SEC`] ?? defMin);
@@ -44,13 +49,15 @@ function sleepThinkRange(range) {
   sleep(sec);
 }
 
-const THINK_HOME       = envThinkMinMax('THINK_AFTER_HOME', 0, 0.3);
-const THINK_LOGIN      = envThinkMinMax('THINK_AFTER_LOGIN', 0.3, 1.5);
-const THINK_COURSE     = envThinkMinMax('THINK_AFTER_COURSE', 0.3, 1.5);
-const THINK_QUIZ_VIEW   = envThinkMinMax('THINK_AFTER_QUIZ_VIEW', 0.5, 2);
+const THINK_HOME          = envThinkMinMax('THINK_AFTER_HOME', 0, 0.3);
+const THINK_LOGIN         = envThinkMinMax('THINK_AFTER_LOGIN', 0.3, 1.5);
+const THINK_COURSE        = envThinkMinMax('THINK_AFTER_COURSE', 0.3, 1.5);
+const THINK_QUIZ_VIEW     = envThinkMinMax('THINK_AFTER_QUIZ_VIEW', 0.5, 2);
 const THINK_BEFORE_SUBMIT = envThinkMinMax('THINK_BEFORE_SUBMIT', 1, 4);
 const THINK_AFTER_SUMMARY = envThinkMinMax('THINK_AFTER_SUMMARY', 0.2, 0.8);
-const THINK_ITERATION   = envThinkMinMax('THINK_ITERATION', 2, 8);
+const THINK_ITERATION     = envThinkMinMax('THINK_ITERATION', 2, 8);
+const THINK_AFTER_REPORT    = envThinkMinMax('THINK_AFTER_REPORT', 0.5, 2);
+const THINK_AFTER_GRADEBOOK = envThinkMinMax('THINK_AFTER_GRADEBOOK', 0.5, 2);
 
 const usersCsvRaw = (__ENV.LOGIN_USERS_CSV || '').trim();
 const AUTH_USERS = usersCsvRaw
@@ -224,6 +231,102 @@ function cmidFromQuizPath(quizPath) {
   return m ? m[1] : '';
 }
 
+function courseIdFromPath(coursePath) {
+  const m = coursePath.match(/[?&]id=(\d+)/);
+  return m ? m[1] : '';
+}
+
+function getGeneratedTeacherUser(vu) {
+  if (Number.isNaN(TEACHER_USER_COUNT) || TEACHER_USER_COUNT <= 0) return null;
+  const normalizedStart = Number.isNaN(TEACHER_USER_START) ? 1 : TEACHER_USER_START;
+  const offset = (vu - 1) % TEACHER_USER_COUNT;
+  const id = normalizedStart + offset;
+  const suffix = String(id).padStart(4, '0');
+  return { username: `${TEACHER_USER_PREFIX}${suffix}`, password: TEACHER_USER_PASSWORD };
+}
+
+/** Browser-like path: home → login → course → quiz view → quiz report → gradebook. */
+function journeyTeacher(user) {
+  const getOpts = {
+    redirects: MAX_REDIRECTS,
+    timeout: HTTP_TIMEOUT,
+    responseType: 'text',
+  };
+
+  const homeRes = http.get(`${BASE_URL}/`, {
+    tags: { name: 'teacher_home' },
+    ...getOpts,
+  });
+  check(homeRes, { 'teacher_home ok': (r) => isOkOrRedirect(r.status) });
+  sleepThinkRange(THINK_HOME);
+
+  const loginPage = http.get(`${BASE_URL}/login/index.php`, {
+    tags: { name: 'teacher_login_page' },
+    ...getOpts,
+  });
+  const token = extractLogintoken(loginPage.body || '');
+  check(loginPage, {
+    'teacher_login_page ok': (r) => isOkOrRedirect(r.status),
+    'teacher_login_page has token': () => token.length > 0,
+  });
+
+  const loginRes = http.post(
+    `${BASE_URL}/login/index.php`,
+    {
+      username: user.username,
+      password: user.password,
+      logintoken: token,
+      anchor: '',
+    },
+    {
+      tags: { name: 'teacher_login_submit' },
+      redirects: MAX_REDIRECTS,
+      timeout: HTTP_TIMEOUT,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      responseType: 'text',
+    }
+  );
+  check(loginRes, {
+    'teacher_login_submit ok': (r) => isOkOrRedirect(r.status),
+    'teacher_login_submit no timeout': (r) => r.status !== 0,
+  });
+  sleepThinkRange(THINK_LOGIN);
+
+  const courseRes = http.get(`${BASE_URL}${COURSE_PATH}`, {
+    tags: { name: 'teacher_course_view' },
+    ...getOpts,
+  });
+  check(courseRes, { 'teacher_course_view ok': (r) => isOkOrRedirect(r.status) });
+  sleepThinkRange(THINK_COURSE);
+
+  const quizRes = http.get(`${BASE_URL}${QUIZ_PATH}`, {
+    tags: { name: 'teacher_quiz_view' },
+    ...getOpts,
+  });
+  check(quizRes, { 'teacher_quiz_view ok': (r) => isOkOrRedirect(r.status) });
+  sleepThinkRange(THINK_QUIZ_VIEW);
+
+  const cmid = cmidFromQuizPath(QUIZ_PATH);
+  if (cmid) {
+    const reportRes = http.get(
+      `${BASE_URL}/mod/quiz/report.php?id=${cmid}&mode=overview`,
+      { tags: { name: 'teacher_quiz_report' }, ...getOpts }
+    );
+    check(reportRes, { 'teacher_quiz_report ok': (r) => isOkOrRedirect(r.status) });
+    sleepThinkRange(THINK_AFTER_REPORT);
+  }
+
+  const courseId = courseIdFromPath(COURSE_PATH);
+  if (courseId) {
+    const gradebookRes = http.get(
+      `${BASE_URL}/grade/report/grader/index.php?id=${courseId}`,
+      { tags: { name: 'teacher_gradebook' }, ...getOpts }
+    );
+    check(gradebookRes, { 'teacher_gradebook ok': (r) => isOkOrRedirect(r.status) });
+    sleepThinkRange(THINK_AFTER_GRADEBOOK);
+  }
+}
+
 /** Browser-like path: home → login → course → quiz → attempt → summary → quiz. */
 function journeyQuizUser(user) {
   const getOpts = {
@@ -373,6 +476,29 @@ export default function () {
       return;
     }
     journeyQuizUser(user);
+    sleepThinkRange(THINK_ITERATION);
+  } else if (PROFILE === 'mixed_roles') {
+    const isTeacher = ((__VU - 1) % 100) < TEACHER_RATIO_PCT;
+    if (isTeacher) {
+      const teacher = getGeneratedTeacherUser(__VU);
+      if (!teacher) {
+        probe('/login/index.php', 'login');
+        sleepThinkRange(THINK_ITERATION);
+        return;
+      }
+      journeyTeacher(teacher);
+    } else {
+      const student =
+        AUTH_USERS.length > 0
+          ? AUTH_USERS[(__VU - 1) % AUTH_USERS.length]
+          : getGeneratedAuthUser(__VU);
+      if (!student) {
+        probe('/login/index.php', 'login');
+        sleepThinkRange(THINK_ITERATION);
+        return;
+      }
+      journeyQuizUser(student);
+    }
     sleepThinkRange(THINK_ITERATION);
   } else {
     probe('/', 'home');
