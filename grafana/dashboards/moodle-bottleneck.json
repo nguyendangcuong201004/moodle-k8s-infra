@@ -188,7 +188,7 @@
       "gridPos": { "h": 7, "w": 3, "x": 0, "y": 17 },
       "targets": [
         {
-          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) / (sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-cache\"}[5m])))",
+          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) / clamp_min(sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-cache\"}[5m])), 1e-9)",
           "legendFormat": "redis-cache",
           "refId": "A"
         }
@@ -215,7 +215,7 @@
       "gridPos": { "h": 7, "w": 3, "x": 3, "y": 17 },
       "targets": [
         {
-          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) / (sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-session\"}[5m])))",
+          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) / clamp_min(sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-session\"}[5m])), 1e-9)",
           "legendFormat": "redis-session",
           "refId": "A"
         }
@@ -420,7 +420,7 @@
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 46 },
       "targets": [
         {
-          "expr": "topk(10, pg_stat_statements_mean_exec_seconds_total) * 1000",
+          "expr": "topk(10, (pg_stat_statements_seconds_total{datname=\"moodle\"} / clamp_min(pg_stat_statements_calls_total{datname=\"moodle\"}, 1))) * 1000",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -474,14 +474,14 @@
       "gridPos": { "h": 7, "w": 12, "x": 12, "y": 56 },
       "targets": [
         {
-          "expr": "sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod)",
-          "legendFormat": "{{ pod }} — throttled s/s",
+          "expr": "sum(rate(container_cpu_cfs_throttled_periods_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod) / clamp_min(sum(rate(container_cpu_cfs_periods_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod), 1)",
+          "legendFormat": "{{ pod }} — throttled ratio",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "percentunit",
           "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 25 },
           "thresholds": {
             "mode": "absolute",

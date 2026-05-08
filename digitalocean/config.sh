@@ -53,6 +53,9 @@ GRAFANA_CLOUD_URL="${GRAFANA_CLOUD_URL:-}"
 
 # Kubernetes
 MOODLE_NAMESPACE="moodle"
+MOODLE_RELEASE_NAME="${MOODLE_RELEASE_NAME:-moodle}"
+MOODLE_REDIS_HOST="${MOODLE_REDIS_HOST:-${MOODLE_RELEASE_NAME}-redis-cache}"
+MOODLE_REDIS_PORT="${MOODLE_REDIS_PORT:-6379}"
 MOODLE_EXEC_CONTAINER="${MOODLE_K8S_MAIN_CONTAINER:-moodle}"
 # role=web excludes CronJob pods (role=cron); otherwise wait/exec may hit a cron pod first.
 MOODLE_WEB_SELECTOR="app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web"

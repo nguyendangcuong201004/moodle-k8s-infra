@@ -273,11 +273,17 @@ step_external_dns() {
   kubectl create secret generic cloudflare-external-dns-api \
     --from-literal=CF_API_TOKEN="${CF_API_TOKEN}" -n external-dns \
     --dry-run=client -o yaml | kubectl apply -f -
-  sed "s/EXTERNAL_DNS_DOMAIN_PLACEHOLDER/${EXTERNAL_DNS_HOSTNAME}/g" "${manifest}" | kubectl apply -f -
+  # Render to a file: avoids breaking YAML when EXTERNAL_DNS_HOSTNAME contains '/' or '&',
+  # and allows kubectl_retry (helpers.sh) to re-read the manifest on each attempt—pipes + stdin would not.
+  local _extdns_rendered
+  _extdns_rendered="$(mktemp)"
+  sed "s#EXTERNAL_DNS_DOMAIN_PLACEHOLDER#${EXTERNAL_DNS_HOSTNAME}#g" "${manifest}" > "${_extdns_rendered}"
+  kubectl apply -f "${_extdns_rendered}"
+  rm -f "${_extdns_rendered}"
   kubectl rollout restart deployment/external-dns -n external-dns 2>/dev/null || true
 }
 
-# Step 5: GRANT on schema public
+# Step 5: GRANT on schema public + ensure pg_stat_statements
 step_db_grant() {
   echo "=== DB GRANT ==="
   local pw="${DO_DB_ADMIN_PASSWORD:-}"
@@ -311,6 +317,7 @@ spec:
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: do-db-admin-grant, key: PGPASSWORD } }
           command: [sh, -c, "psql -h ${DB_HOST} -p ${DB_PORT} -U doadmin -d ${DB_NAME} -v ON_ERROR_STOP=1
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
             -c 'GRANT ALL ON SCHEMA public TO ${DB_USER};'
             -c 'GRANT CREATE ON SCHEMA public TO ${DB_USER};'"]
 EOF
@@ -440,11 +447,14 @@ EOF
 step_configure_moodle() {
   echo "=== Configure Moodle (lean mode) ==="
 
-  if exec_retry sh -c 'test -n "${MOODLE_REDIS_HOST:-}"'; then
+  local redis_host="${MOODLE_REDIS_HOST:-moodle-redis-cache}"
+  local redis_port="${MOODLE_REDIS_PORT:-6379}"
+  if [[ -n "${redis_host}" ]]; then
+    echo "Applying Redis MUC mapping: ${redis_host}:${redis_port}"
     exec_retry_stdin 'cat > /tmp/redis-muc.php' <<'PHP'
 <?php
 define('CLI_SCRIPT', true); require('/var/www/html/config.php');
-$h = getenv('MOODLE_REDIS_HOST') ?: ''; $p = getenv('MOODLE_REDIS_PORT') ?: '6379';
+$h = getenv('MOODLE_REDIS_HOST') ?: 'moodle-redis-cache'; $p = getenv('MOODLE_REDIS_PORT') ?: '6379';
 if (!$h) { exit(0); }
 $n = 'redis_app_shared';
 $cfg = ['server'=>"$h:$p",'prefix'=>'moodlecache_','connectiontimeout'=>2,'lockwait'=>60,'locktimeout'=>600];
@@ -457,7 +467,8 @@ $w->set_mode_mappings([
 ]);
 echo "Redis MUC applied\n";
 PHP
-    exec_retry runuser -u www-data -- php /tmp/redis-muc.php \
+    exec_retry env MOODLE_REDIS_HOST="${redis_host}" MOODLE_REDIS_PORT="${redis_port}" \
+      runuser -u www-data -- php /tmp/redis-muc.php \
       || { echo "Redis MUC failed"; exit 1; }
     exec_retry runuser -u www-data -- php admin/cli/purge_caches.php || true
   fi
