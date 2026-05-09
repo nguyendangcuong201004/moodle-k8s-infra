@@ -106,7 +106,7 @@ spec:
               $_cacheRedisHost = getenv('MOODLE_REDIS_CACHE_HOST');
               $_cacheRedisPort = getenv('MOODLE_REDIS_CACHE_PORT') ?: '6379';
               if ($_cacheRedisHost) {
-                  // Cache bootstrap variables; MUC store mapping is managed by cache-setup hook.
+                  // Cache bootstrap variables; MUC store mapping is applied by setup.sh from the cache-setup ConfigMap.
                   $CFG->redis_cache_host = $_cacheRedisHost;
                   $CFG->redis_cache_port = (int)$_cacheRedisPort;
                   $CFG->redis_cache_database = {{ .Values.redis.cache.database }};
@@ -238,6 +238,12 @@ spec:
               mountPath: /var/www/html
             - name: moodledata
               mountPath: /var/www/moodledata
+            {{- if .Values.cacheSetup.apcuIniOverlay }}
+            - name: php-apcu-ini
+              mountPath: /usr/local/etc/php/conf.d/zzz-moodle-k8s-apcu.ini
+              subPath: zzz-moodle-k8s-apcu.ini
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
         {{- if .Values.pgbouncer.enabled }}
@@ -393,6 +399,11 @@ spec:
       volumes:
         - name: moodle-app
           emptyDir: {}
+        {{- if .Values.cacheSetup.apcuIniOverlay }}
+        - name: php-apcu-ini
+          configMap:
+            name: {{ include "moodle.fullname" . }}-php-apcu-ini
+        {{- end }}
         - name: nginx-config
           configMap:
             name: {{ include "moodle.fullname" . }}-nginx

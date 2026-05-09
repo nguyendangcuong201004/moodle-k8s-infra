@@ -23,6 +23,7 @@ step_external_dns
 step_db_grant
 step_wait_pods
 step_install
+step_moodle_muc_cache_setup
 step_configure_moodle
 step_postgres_exporter
 step_k6_synthetic_probe

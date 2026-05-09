@@ -90,6 +90,12 @@ spec:
               volumeMounts:
                 - name: moodle-html
                   mountPath: /moodle-html
+                {{- if .Values.cacheSetup.apcuIniOverlay }}
+                - name: php-apcu-ini
+                  mountPath: /usr/local/etc/php/conf.d/zzz-moodle-k8s-apcu.ini
+                  subPath: zzz-moodle-k8s-apcu.ini
+                  readOnly: true
+                {{- end }}
                 - name: moodledata
                   mountPath: /var/www/moodledata
               resources:
@@ -97,6 +103,11 @@ spec:
           volumes:
             - name: moodle-html
               emptyDir: {}
+            {{- if .Values.cacheSetup.apcuIniOverlay }}
+            - name: php-apcu-ini
+              configMap:
+                name: {{ include "moodle.fullname" . }}-php-apcu-ini
+            {{- end }}
             - name: moodledata
               persistentVolumeClaim:
                 claimName: {{ include "moodle.fullname" . }}-data

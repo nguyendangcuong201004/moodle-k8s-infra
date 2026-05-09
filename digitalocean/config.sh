@@ -57,6 +57,9 @@ MOODLE_RELEASE_NAME="${MOODLE_RELEASE_NAME:-moodle}"
 MOODLE_REDIS_HOST="${MOODLE_REDIS_HOST:-${MOODLE_RELEASE_NAME}-redis-cache}"
 MOODLE_REDIS_PORT="${MOODLE_REDIS_PORT:-6379}"
 MOODLE_EXEC_CONTAINER="${MOODLE_K8S_MAIN_CONTAINER:-moodle}"
+# Optional CLI prefix for MUC cache script (see step_moodle_muc_cache_setup): default empty = run `php` as
+# container user (usually root on php-fpm images) so K8s env + DB secret are visible. Example override:
+# MOODLE_MUC_PHP_WRAPPER='runuser -m -u www-data --'
 # role=web excludes CronJob pods (role=cron); otherwise wait/exec may hit a cron pod first.
 MOODLE_WEB_SELECTOR="app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web"
 MOODLE_POD=""

@@ -39,7 +39,8 @@ k8s_secret() {
 }
 
 ensure_namespace() {
-  kubectl create namespace "$1" --dry-run=client -o yaml | kubectl apply -f -
+  # Avoid kubectl fetching OpenAPI schema for validation (timeouts on flaky paths to apiserver).
+  kubectl create namespace "$1" --dry-run=client -o yaml | kubectl apply --validate=false -f -
 }
 
 # Web pod name where container "moodle" is Ready. Do not require pod phase=Running:
