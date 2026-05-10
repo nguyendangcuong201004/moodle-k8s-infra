@@ -1,0 +1,843 @@
+{
+  "title": "Moodle — Stack saturation & cluster",
+  "description": "Merged: PHP-FPM, PgBouncer, Redis, PostgreSQL saturation + locks/deadlocks; cluster node CPU/memory/disk and pods per node (replaces Bottleneck + Cluster Resources + Thesis Stack). CPU vs limit panels live on «Operations, SLO & scale».",
+  "tags": [
+    "moodle",
+    "bottleneck",
+    "saturation",
+    "kubernetes",
+    "cluster"
+  ],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "PHP-FPM (web tier)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "FPM listen queue (>0 = bottleneck)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(phpfpm_listen_queue) by (pod)",
+          "legendFormat": "{{ pod }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 25,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "FPM active vs idle workers",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(phpfpm_active_processes) by (pod)",
+          "legendFormat": "{{ pod }} — active",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(phpfpm_idle_processes) by (pod)",
+          "legendFormat": "{{ pod }} — idle",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(phpfpm_max_children) by (pod)",
+          "legendFormat": "{{ pod }} — max",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "FPM max_children_reached / slow_requests",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(phpfpm_max_children_reached[5m])) by (pod)",
+          "legendFormat": "{{ pod }} — max_reached/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(phpfpm_slow_requests[5m])) by (pod)",
+          "legendFormat": "{{ pod }} — slow_req/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "PgBouncer (DB pool)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 6,
+      "title": "Clients waiting (>0 = pool exhausted)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "sum(pgbouncer_pools_client_waiting_connections) by (pod, database)",
+          "legendFormat": "{{ pod }} / {{ database }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 25
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Server connections by state",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "sum(pgbouncer_pools_server_active_connections) by (pod)",
+          "legendFormat": "{{ pod }} — sv_active",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(pgbouncer_pools_server_idle_connections) by (pod)",
+          "legendFormat": "{{ pod }} — sv_idle",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(pgbouncer_pools_server_used_connections) by (pod)",
+          "legendFormat": "{{ pod }} — sv_used",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Max wait time (s)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "max(pgbouncer_pools_client_maxwait_seconds) by (pod, database)",
+          "legendFormat": "{{ pod }} / {{ database }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Redis (cache & session)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 10,
+      "title": "Redis cache hit ratio (MUC app)",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 3,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) / clamp_min(sum(rate(redis_keyspace_hits_total{component=\"redis-cache\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-cache\"}[5m])), 1e-9)",
+          "legendFormat": "redis-cache",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.85
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Redis session hit ratio",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 3,
+        "x": 3,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) / clamp_min(sum(rate(redis_keyspace_hits_total{component=\"redis-session\"}[5m])) + sum(rate(redis_keyspace_misses_total{component=\"redis-session\"}[5m])), 1e-9)",
+          "legendFormat": "redis-session",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.6
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Evictions / sec by role (>0 = memory pressure)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(redis_evicted_keys_total[5m])) by (component)",
+          "legendFormat": "{{ component }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 30
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Memory used vs maxmemory by role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(redis_memory_used_bytes) by (component)",
+          "legendFormat": "{{ component }} used",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(redis_memory_max_bytes) by (component)",
+          "legendFormat": "{{ component }} max",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Connected / blocked clients by role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(redis_connected_clients) by (component)",
+          "legendFormat": "{{ component }} connected",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(redis_blocked_clients) by (component)",
+          "legendFormat": "{{ component }} blocked",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Commands rate by type and role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "topk(16, sum(rate(redis_commands_total[5m])) by (component, cmd))",
+          "legendFormat": "{{ component }} / {{ cmd }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "PostgreSQL (Managed DB)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
+    },
+    {
+      "id": 17,
+      "title": "Active connections by state",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(pg_stat_activity_count) by (state)",
+          "legendFormat": "{{ state }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Cache hit ratio (heap blocks)",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_blks_hit{datname=\"moodle\"}[5m])) / (sum(rate(pg_stat_database_blks_hit{datname=\"moodle\"}[5m])) + sum(rate(pg_stat_database_blks_read{datname=\"moodle\"}[5m])))",
+          "legendFormat": "buffer hit",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.95
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Transactions per second",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"moodle\"}[1m]))",
+          "legendFormat": "commits/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"moodle\"}[1m]))",
+          "legendFormat": "rollbacks/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Locks by mode (moodle DB)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "targets": [
+        {
+          "expr": "sum(pg_locks_count{datname=\"moodle\"}) by (mode)",
+          "legendFormat": "{{ mode }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Deadlocks / Conflicts",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_deadlocks{datname=\"moodle\"}[5m]))",
+          "legendFormat": "deadlocks/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_conflicts{datname=\"moodle\"}[5m]))",
+          "legendFormat": "conflicts/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Cluster / nodes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "id": 23,
+      "title": "Node CPU Utilization",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) by (instance)",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Node Memory Utilization",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "targets": [
+        {
+          "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Node Disk Usage",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"})",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Pods per Node",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "count(kube_pod_info) by (node)",
+          "legendFormat": "{{ node }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "annotations": {},
+  "editable": true,
+  "gnetId": null,
+  "uid": null,
+  "links": [],
+  "schemaVersion": 39,
+  "version": 1
+}

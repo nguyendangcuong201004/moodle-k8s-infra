@@ -394,7 +394,7 @@ if [[ "${SHOW_WEB_DASHBOARD}" == "true" ]]; then
 fi
 
 echo "Grafana (thesis export): set the time range to this run’s peak window and capture"
-echo "  “Moodle (Thesis) — Performance & Autoscale” and “Moodle (Thesis) — Stack & Bottlenecks”."
+echo "  “Moodle — Operations, SLO & scale” and “Moodle — Stack saturation & cluster”."
 echo "  ../grafana-connect.sh from this stress-test folder (imports dashboards + port-forward)."
 
 if [[ "${HOLD_AFTER_RUN}" == "true" ]] && [[ -t 0 ]]; then
