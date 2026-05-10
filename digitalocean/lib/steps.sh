@@ -105,6 +105,7 @@ step_prometheus() {
     --set grafana.env.GF_LOG_MODE=console \
     --set grafana.env.GF_PATHS_LOGS=/dev/null \
     --set grafana.env.GF_AUTH_BASIC_ENABLED=true \
+    --set grafana.defaultDashboardsEnabled=false \
     --set alertmanager.enabled=false \
     --set nodeExporter.enabled=true \
     --set kubeStateMetrics.enabled=true \
@@ -183,12 +184,18 @@ step_grafana_dashboards() {
   # Import dashboards to Grafana Cloud if configured
   if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" && -n "${GRAFANA_CLOUD_URL:-}" && -d "${DASHBOARDS_DIR:-}" ]]; then
     echo "=== Grafana Cloud dashboards ==="
-    for f in "${DASHBOARDS_DIR}"/*.json; do
-      [ -f "${f}" ] || continue
-      local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
-      curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
-        -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" -H "Content-Type: application/json" \
-        -d "${payload}" || echo "Failed: $(basename "${f}")"
+    local f d sub
+    for sub in "" "full"; do
+      d="${DASHBOARDS_DIR}"
+      [[ -n "${sub}" ]] && d="${DASHBOARDS_DIR}/${sub}"
+      [[ -d "${d}" ]] || continue
+      for f in "${d}"/*.json; do
+        [ -f "${f}" ] || continue
+        local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
+        curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
+          -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" -H "Content-Type: application/json" \
+          -d "${payload}" || echo "Failed: $(basename "${f}")"
+      done
     done
     return
   fi
@@ -222,11 +229,17 @@ step_grafana_dashboards() {
     done
 
     if [[ "${ready}" == "true" ]]; then
-      for f in "${DASHBOARDS_DIR}"/*.json; do
-        [ -f "${f}" ] || continue
-        local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
-        curl -sS -u "${u}:${p}" -X POST "http://127.0.0.1:3000/api/dashboards/db" \
-          -H "Content-Type: application/json" -d "${payload}" || echo "Failed: $(basename "${f}")"
+      local f d sub
+      for sub in "" "full"; do
+        d="${DASHBOARDS_DIR}"
+        [[ -n "${sub}" ]] && d="${DASHBOARDS_DIR}/${sub}"
+        [[ -d "${d}" ]] || continue
+        for f in "${d}"/*.json; do
+          [ -f "${f}" ] || continue
+          local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
+          curl -sS -u "${u}:${p}" -X POST "http://127.0.0.1:3000/api/dashboards/db" \
+            -H "Content-Type: application/json" -d "${payload}" || echo "Failed: $(basename "${f}")"
+        done
       done
     else
       echo "Grafana port-forward timeout; skipping dashboard import."
