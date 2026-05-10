@@ -53,7 +53,7 @@ flowchart TB
 | Caching | Two **Redis** instances in the cluster: **session** store and **MUC** (application cache) for Moodle; wired via chart + post-install PHP in `setup.sh`. |
 | Files | **Longhorn** `ReadWriteMany` PVC for `/var/www/moodledata`. |
 | Background | **CronJob** runs Moodle scheduler (`role=cron`), separate from web pods (`role=web`). |
-| Observability | **kube-prometheus-stack**, optional **Grafana Cloud** push; **postgres-exporter** for managed Postgres; PodMonitors for exporters. |
+| Observability | **kube-prometheus-stack**, optional **Grafana Cloud** push; **postgres-exporter** for managed Postgres; PodMonitors for exporters. **Two** merged Grafana JSON dashboards under `grafana/dashboards/` (operations/SLO vs stack/cluster). |
 
 ## Prerequisites
 

@@ -118,15 +118,14 @@ if [[ "${IMPORT}" != "--no-import" && -d "${DASHBOARDS_DIR}" ]]; then
     done
   }
   _import_dashboard_folder "${DASHBOARDS_DIR}"
-  _import_dashboard_folder "${DASHBOARDS_DIR}/full"
 fi
 
 echo ""
-echo "Thesis report screenshots: set the time picker to the stress-test / k6 peak window"
+echo "Thesis / ops screenshots: set the time picker to the stress-test / k6 peak window"
 echo "  (e.g. last 30 minutes of the run), then export from:"
-echo "  - Moodle (Thesis) — Performance & Autoscale"
-echo "  - Moodle (Thesis) — Stack & Bottlenecks"
-echo "  Full ops dashboards (if imported) live under the same folder listing from .../dashboards/full/."
+echo "  - Moodle — Operations, SLO & scale"
+echo "  - Moodle — Stack saturation & cluster"
+echo "  (Both JSON files live under grafana/dashboards/.)"
 echo ""
 echo "=============================================="
 echo "Grafana: http://localhost:${GRAFANA_LOCAL_PORT}"
