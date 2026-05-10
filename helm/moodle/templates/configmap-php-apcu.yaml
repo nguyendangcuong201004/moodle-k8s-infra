@@ -1,0 +1,15 @@
+{{- /* Overlay APCu for PHP-FPM and PHP CLI (web + cron + MUC script run as www-data). */ -}}
+{{- if .Values.cacheSetup.apcuIniOverlay }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moodle.fullname" . }}-php-apcu-ini
+  labels:
+    {{- include "moodle.labels" . | nindent 4 }}
+data:
+  zzz-moodle-k8s-apcu.ini: |
+    ; Mounted into /usr/local/etc/php/conf.d/ (php-fpm + php-cli in same image).
+    apc.enabled=1
+    apc.enable_cli=1
+    apc.shm_size=128M
+{{- end }}

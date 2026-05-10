@@ -105,6 +105,7 @@ step_prometheus() {
     --set grafana.env.GF_LOG_MODE=console \
     --set grafana.env.GF_PATHS_LOGS=/dev/null \
     --set grafana.env.GF_AUTH_BASIC_ENABLED=true \
+    --set grafana.defaultDashboardsEnabled=false \
     --set alertmanager.enabled=false \
     --set nodeExporter.enabled=true \
     --set kubeStateMetrics.enabled=true \
@@ -164,23 +165,37 @@ step_k6_synthetic_probe() {
   [[ -f "${manifest}" ]] || return
   echo "=== k6 synthetic probe ==="
   ensure_namespace monitoring
+  # Render to a file: kubectl_retry re-invokes kubectl; stdin from a pipe is consumed once,
+  # so retries would otherwise see EOF and emit "no objects passed to apply".
+  local rendered
+  rendered="$(mktemp)"
   sed \
     -e "s|BASE_URL_PLACEHOLDER|${SITE_URL}|g" \
     -e "s|PROM_RW_URL_PLACEHOLDER|http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/write|g" \
     -e "s|TEST_ID_PLACEHOLDER|moodle-synthetic|g" \
-    "${manifest}" | kubectl apply -f -
+    "${manifest}" > "${rendered}"
+  # Without this, kubectl downloads OpenAPI v2 from apiserver; flaky network → timeout and misleading
+  # "error validating STDIN" / empty retries when combined with piped manifests elsewhere.
+  kubectl apply --validate=false -f "${rendered}"
+  rm -f "${rendered}"
 }
 
 step_grafana_dashboards() {
   # Import dashboards to Grafana Cloud if configured
   if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" && -n "${GRAFANA_CLOUD_URL:-}" && -d "${DASHBOARDS_DIR:-}" ]]; then
     echo "=== Grafana Cloud dashboards ==="
-    for f in "${DASHBOARDS_DIR}"/*.json; do
-      [ -f "${f}" ] || continue
-      local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
-      curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
-        -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" -H "Content-Type: application/json" \
-        -d "${payload}" || echo "Failed: $(basename "${f}")"
+    local f d sub
+    for sub in "" "full"; do
+      d="${DASHBOARDS_DIR}"
+      [[ -n "${sub}" ]] && d="${DASHBOARDS_DIR}/${sub}"
+      [[ -d "${d}" ]] || continue
+      for f in "${d}"/*.json; do
+        [ -f "${f}" ] || continue
+        local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
+        curl -sS -X POST "${GRAFANA_CLOUD_URL}/api/dashboards/db" \
+          -H "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}" -H "Content-Type: application/json" \
+          -d "${payload}" || echo "Failed: $(basename "${f}")"
+      done
     done
     return
   fi
@@ -214,11 +229,17 @@ step_grafana_dashboards() {
     done
 
     if [[ "${ready}" == "true" ]]; then
-      for f in "${DASHBOARDS_DIR}"/*.json; do
-        [ -f "${f}" ] || continue
-        local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
-        curl -sS -u "${u}:${p}" -X POST "http://127.0.0.1:3000/api/dashboards/db" \
-          -H "Content-Type: application/json" -d "${payload}" || echo "Failed: $(basename "${f}")"
+      local f d sub
+      for sub in "" "full"; do
+        d="${DASHBOARDS_DIR}"
+        [[ -n "${sub}" ]] && d="${DASHBOARDS_DIR}/${sub}"
+        [[ -d "${d}" ]] || continue
+        for f in "${d}"/*.json; do
+          [ -f "${f}" ] || continue
+          local payload; payload=$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')
+          curl -sS -u "${u}:${p}" -X POST "http://127.0.0.1:3000/api/dashboards/db" \
+            -H "Content-Type: application/json" -d "${payload}" || echo "Failed: $(basename "${f}")"
+        done
       done
     else
       echo "Grafana port-forward timeout; skipping dashboard import."
@@ -258,6 +279,68 @@ step_helm_deploy() {
     "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}"
 }
 
+# Apply MUC caches from Helm-rendered ConfigMap after Moodle exists in DB (cannot run sooner).
+# Idempotent: safe on every ./setup.sh run (fresh install or after Helm chart changes).
+#
+# IMPORTANT: helpers.sh replaces `kubectl` with kubectl_retry(). Do not use kubectl cp/exec -i + stdin
+# with that wrapper: retries rerun only kubectl and consume stdin once — file never appears on repeats.
+# Use _kubectl (no retry per call) here and retry the whole upload+exec block ourselves if needed.
+step_moodle_muc_cache_setup() {
+  echo "=== Moodle MUC caches (ConfigMap script in web pod) ==="
+  local cm pod scratch attempt retries ok rpath
+  cm="${MOODLE_CACHE_SETUP_CONFIGMAP:-${MOODLE_RELEASE_NAME}-cache-setup}"
+  if ! kubectl -n "${MOODLE_NAMESPACE}" get configmap "${cm}" >/dev/null 2>&1; then
+    echo "ConfigMap '${cm}' not found (Redis or cacheSetup disabled in chart). Skipping MUC wiring."
+    return 0
+  fi
+
+  scratch="$(mktemp)"
+  kubectl -n "${MOODLE_NAMESPACE}" get configmap "${cm}" \
+    -o jsonpath='{.data.setup-cache\.php}' > "${scratch}"
+  if [[ "$(wc -c < "${scratch}")" -lt 32 ]]; then
+    rm -f "${scratch}"
+    echo "cache-setup ConfigMap '${cm}' has empty setup-cache.php"
+    exit 1
+  fi
+
+  retries="${MOODLE_MUC_EXEC_RETRIES:-4}"
+  ok=0
+  attempt=1
+  while [[ "${attempt}" -le "${retries}" ]]; do
+    pod="$(pick_ready_web_pod)"
+    [[ -z "${pod}" ]] && {
+      echo "No ready Moodle web pod (${attempt}/${retries})..."
+      attempt=$((attempt + 1))
+      sleep 2
+      continue
+    }
+
+    # Stream script into pod in one exec (no kubectl cp / tar).
+    # rpath is expanded locally; keep it under /tmp with no shell metacharacters.
+    rpath="/tmp/moodle-muc-setup.${RANDOM}${RANDOM}.php"
+    # Run `php` as the container UID (php-fpm images are usually root): full K8s env + envFrom secret,
+    # so MOODLE_REDIS_* and MOODLE_DB_PASSWORD are visible. Using `runuser www-data` clears or thins
+    # env on several images so MUC never saw Redis and exited "success" paths before.
+    # -d apc.enable_cli=1: register APCu instance from CLI when extension is present.
+    # If you must use www-data only, set MOODLE_MUC_PHP_WRAPPER='runuser -m -u www-data --' in .env.
+    _muc_wrap="${MOODLE_MUC_PHP_WRAPPER:-}"
+    if cat "${scratch}" | _kubectl -n "${MOODLE_NAMESPACE}" exec "${pod}" -c "${MOODLE_EXEC_CONTAINER}" -i -- \
+      sh -c "cat > ${rpath} && chmod 0644 ${rpath} && ${_muc_wrap} php -d apc.enable_cli=1 ${rpath}; ec=\$?; rm -f ${rpath}; exit \$ec"; then
+      ok=1
+      break
+    fi
+    echo "MUC sync+run failed (${attempt}/${retries}), retrying..."
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  rm -f "${scratch}"
+  if [[ "${ok}" -ne 1 ]]; then
+    echo "MUC apply failed after ${retries} attempts."
+    exit 1
+  fi
+  echo "Moodle MUC caches applied OK."
+}
+
 # ExternalDNS + Cloudflare (skipped without CF_API_TOKEN)
 step_external_dns() {
   local manifest="${DO_DIR}/k8s/external-dns-cloudflare.yaml"
@@ -273,11 +356,17 @@ step_external_dns() {
   kubectl create secret generic cloudflare-external-dns-api \
     --from-literal=CF_API_TOKEN="${CF_API_TOKEN}" -n external-dns \
     --dry-run=client -o yaml | kubectl apply -f -
-  sed "s/EXTERNAL_DNS_DOMAIN_PLACEHOLDER/${EXTERNAL_DNS_HOSTNAME}/g" "${manifest}" | kubectl apply -f -
+  # Render to a file: avoids breaking YAML when EXTERNAL_DNS_HOSTNAME contains '/' or '&',
+  # and allows kubectl_retry (helpers.sh) to re-read the manifest on each attempt—pipes + stdin would not.
+  local _extdns_rendered
+  _extdns_rendered="$(mktemp)"
+  sed "s#EXTERNAL_DNS_DOMAIN_PLACEHOLDER#${EXTERNAL_DNS_HOSTNAME}#g" "${manifest}" > "${_extdns_rendered}"
+  kubectl apply -f "${_extdns_rendered}"
+  rm -f "${_extdns_rendered}"
   kubectl rollout restart deployment/external-dns -n external-dns 2>/dev/null || true
 }
 
-# Step 5: GRANT on schema public
+# Step 5: GRANT on schema public + ensure pg_stat_statements
 step_db_grant() {
   echo "=== DB GRANT ==="
   local pw="${DO_DB_ADMIN_PASSWORD:-}"
@@ -311,6 +400,7 @@ spec:
             - name: PGPASSWORD
               valueFrom: { secretKeyRef: { name: do-db-admin-grant, key: PGPASSWORD } }
           command: [sh, -c, "psql -h ${DB_HOST} -p ${DB_PORT} -U doadmin -d ${DB_NAME} -v ON_ERROR_STOP=1
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'
             -c 'GRANT ALL ON SCHEMA public TO ${DB_USER};'
             -c 'GRANT CREATE ON SCHEMA public TO ${DB_USER};'"]
 EOF
@@ -436,31 +526,9 @@ EOF
   exec_retry runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
 }
 
-# Step 8: Redis MUC + lean site settings
+# Step 8: Lean site settings (MUC cache mapping: step_moodle_muc_cache_setup earlier)
 step_configure_moodle() {
   echo "=== Configure Moodle (lean mode) ==="
-
-  if exec_retry sh -c 'test -n "${MOODLE_REDIS_HOST:-}"'; then
-    exec_retry_stdin 'cat > /tmp/redis-muc.php' <<'PHP'
-<?php
-define('CLI_SCRIPT', true); require('/var/www/html/config.php');
-$h = getenv('MOODLE_REDIS_HOST') ?: ''; $p = getenv('MOODLE_REDIS_PORT') ?: '6379';
-if (!$h) { exit(0); }
-$n = 'redis_app_shared';
-$cfg = ['server'=>"$h:$p",'prefix'=>'moodlecache_','connectiontimeout'=>2,'lockwait'=>60,'locktimeout'=>600];
-$w = \core_cache\config_writer::instance();
-if (!array_key_exists($n, $w->get_all_stores())) { $w->add_store_instance($n, 'redis', $cfg); }
-$w->set_mode_mappings([
-  \core_cache\store::MODE_APPLICATION => [$n, 'default_application'],
-  \core_cache\store::MODE_SESSION     => [$n, 'default_session'],
-  \core_cache\store::MODE_REQUEST     => ['default_request'],
-]);
-echo "Redis MUC applied\n";
-PHP
-    exec_retry runuser -u www-data -- php /tmp/redis-muc.php \
-      || { echo "Redis MUC failed"; exit 1; }
-    exec_retry runuser -u www-data -- php admin/cli/purge_caches.php || true
-  fi
 
   local lines=("<?php" "define('CLI_SCRIPT',true);" "require('/var/www/html/config.php');"
     "core_plugin_manager::reset_caches();" "\$pm=core_plugin_manager::instance();")

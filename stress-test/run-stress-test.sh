@@ -55,6 +55,7 @@ MAX_VUS="${MAX_VUS:-400}"
 STEP_HOLD="${STEP_HOLD:-45s}"
 STEP_RAMP="${STEP_RAMP:-10s}"
 MAX_P95_MS="${MAX_P95_MS:-10000}"
+MAX_P99_MS="${MAX_P99_MS:-5000}"
 MAX_FAIL_RATE="${MAX_FAIL_RATE:-0.05}"
 ABORT_DELAY="${ABORT_DELAY:-0s}"
 MAX_REDIRECTS="${MAX_REDIRECTS:-10}"
@@ -79,7 +80,7 @@ COURSE_PATH="${COURSE_PATH:-/course/view.php?id=2}"
 QUIZ_PATH="${QUIZ_PATH:-/mod/quiz/view.php?id=1}"
 AUTH_USER_PREFIX="${AUTH_USER_PREFIX:-user}"
 AUTH_USER_START="${AUTH_USER_START:-1}"
-AUTH_USER_COUNT="${AUTH_USER_COUNT:-100}"
+AUTH_USER_COUNT="${AUTH_USER_COUNT:-300}"
 AUTH_USER_PASSWORD="${AUTH_USER_PASSWORD:-123456}"
 QUIZ_DO_SUBMIT="${QUIZ_DO_SUBMIT:-true}"
 QUIZ_TEXT_ANSWER="${QUIZ_TEXT_ANSWER:-2}"
@@ -102,7 +103,7 @@ LOGIN_USERS_FILE="${LOGIN_USERS_FILE:-}"
 LOGIN_USERS_CSV="${LOGIN_USERS_CSV:-}"
 TEACHER_USER_PREFIX="${TEACHER_USER_PREFIX:-teacher}"
 TEACHER_USER_START="${TEACHER_USER_START:-1}"
-TEACHER_USER_COUNT="${TEACHER_USER_COUNT:-10}"
+TEACHER_USER_COUNT="${TEACHER_USER_COUNT:-60}"
 TEACHER_USER_PASSWORD="${TEACHER_USER_PASSWORD:-123456}"
 TEACHER_RATIO_PCT="${TEACHER_RATIO_PCT:-20}"
 THINK_AFTER_REPORT_MIN_SEC="${THINK_AFTER_REPORT_MIN_SEC:-0.5}"
@@ -198,7 +199,7 @@ printf "Capacity test configuration:\n"
 printf "  BASE_URL=%s\n" "${BASE_URL}"
 printf "  START_VUS=%s STEP_VUS=%s MAX_VUS=%s\n" "${START_VUS}" "${STEP_VUS}" "${MAX_VUS}"
 printf "  STEP_RAMP=%s STEP_HOLD=%s\n" "${STEP_RAMP}" "${STEP_HOLD}"
-printf "  MAX_P95_MS=%s MAX_FAIL_RATE=%s ABORT_DELAY=%s\n\n" "${MAX_P95_MS}" "${MAX_FAIL_RATE}" "${ABORT_DELAY}"
+printf "  MAX_P95_MS=%s MAX_P99_MS=%s MAX_FAIL_RATE=%s ABORT_DELAY=%s\n\n" "${MAX_P95_MS}" "${MAX_P99_MS}" "${MAX_FAIL_RATE}" "${ABORT_DELAY}"
 printf "  MAX_REDIRECTS=%s HTTP_TIMEOUT=%s\n\n" "${MAX_REDIRECTS}" "${HTTP_TIMEOUT}"
 printf "  PROFILE=%s COURSE_PATH=%s QUIZ_PATH=%s QUIZ_DO_SUBMIT=%s\n\n" "${PROFILE}" "${COURSE_PATH}" "${QUIZ_PATH}" "${QUIZ_DO_SUBMIT}"
 if [[ "${PROFILE}" == "auth_quiz" || "${PROFILE}" == "mixed_roles" ]]; then
@@ -279,6 +280,7 @@ run_k6() {
   BASE_URL="${BASE_URL}" \
   STAIRCASE_PLAN="${STAIRCASE_PLAN}" \
   MAX_P95_MS="${MAX_P95_MS}" \
+  MAX_P99_MS="${MAX_P99_MS}" \
   MAX_FAIL_RATE="${MAX_FAIL_RATE}" \
   ABORT_DELAY="${ABORT_DELAY}" \
   MAX_REDIRECTS="${MAX_REDIRECTS}" \
@@ -340,10 +342,12 @@ if [[ -f "${SUMMARY_JSON}" ]] && jq -e . "${SUMMARY_JSON}" >/dev/null 2>&1; then
   SUMMARY_OK=true
   FAIL_RATE=$(jq -r '((.metrics.http_req_failed // {}) | .value // .values.rate // 1) | tonumber' "${SUMMARY_JSON}")
   P95_MS=$(jq -r '((.metrics.http_req_duration // {}) | .["p(95)"] // .values["p(95)"] // 999999) | tonumber' "${SUMMARY_JSON}")
+  P99_MS=$(jq -r '((.metrics.http_req_duration // {}) | .["p(99)"] // .values["p(99)"] // 999999) | tonumber' "${SUMMARY_JSON}")
   MAX_VUS_REACHED=$(jq -r '((.metrics.vus // {}) | .max // .value // 0) | tonumber' "${SUMMARY_JSON}")
 else
   FAIL_RATE="n/a"
   P95_MS="n/a"
+  P99_MS="n/a"
   MAX_VUS_REACHED="n/a"
   echo "" >&2
   echo "Warning: no valid summary JSON — k6 exited before writing the report (startup error or crash)." >&2
@@ -358,14 +362,16 @@ echo "=========================================="
 echo "CONCURRENT VUs (peak reached in this run): ${MAX_VUS_REACHED}"
 echo "Planned ceiling (last stage target):       ${PLANNED_MAX_VUS}"
 echo "=========================================="
-echo "Final result: fail_rate=${FAIL_RATE}, p95_ms=${P95_MS}, k6_exit=${K6_EXIT}"
+echo "Final result: fail_rate=${FAIL_RATE}, p95_ms=${P95_MS}, p99_ms=${P99_MS}, k6_exit=${K6_EXIT}"
 echo "Warnings: timeouts=${TIMEOUT_COUNT}, redirect_limit_hits=${REDIRECT_WARN_COUNT}"
 
 if [[ "${SUMMARY_OK}" == "true" ]]; then
-  if awk -v p="${P95_MS}" -v lim="${MAX_P95_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
-    echo "Abort reason (primary): p95 latency exceeded threshold (${P95_MS} > ${MAX_P95_MS})."
-  elif awk -v f="${FAIL_RATE}" -v lim="${MAX_FAIL_RATE}" 'BEGIN {exit !(f > lim)}' </dev/null; then
+  if awk -v f="${FAIL_RATE}" -v lim="${MAX_FAIL_RATE}" 'BEGIN {exit !(f > lim)}' </dev/null; then
     echo "Abort reason (primary): fail rate exceeded threshold (${FAIL_RATE} > ${MAX_FAIL_RATE})."
+  elif awk -v p="${P95_MS}" -v lim="${MAX_P95_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
+    echo "Abort reason (primary): p95 latency exceeded threshold (${P95_MS} > ${MAX_P95_MS})."
+  elif awk -v p="${P99_MS}" -v lim="${MAX_P99_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
+    echo "Abort reason (primary): p99 latency exceeded threshold (${P99_MS} > ${MAX_P99_MS})."
   elif [[ ${K6_EXIT} -ne 0 ]]; then
     echo "Abort reason: threshold abort or runtime error; inspect ${LOG_FILE} for details."
   fi
@@ -386,6 +392,10 @@ echo "  Log:     ${LOG_FILE}"
 if [[ "${SHOW_WEB_DASHBOARD}" == "true" ]]; then
   echo "  k6 web UI: ${K6_DASHBOARD_UI_URL}"
 fi
+
+echo "Grafana (thesis export): set the time range to this run’s peak window and capture"
+echo "  “Moodle (Thesis) — Performance & Autoscale” and “Moodle (Thesis) — Stack & Bottlenecks”."
+echo "  ../grafana-connect.sh from this stress-test folder (imports dashboards + port-forward)."
 
 if [[ "${HOLD_AFTER_RUN}" == "true" ]] && [[ -t 0 ]]; then
   echo

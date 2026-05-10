@@ -13,6 +13,7 @@ import { check, sleep } from 'k6';
 const BASE_URL      = __ENV.BASE_URL || 'http://moodle.moodle:80';
 const MAX_FAIL_RATE = Number(__ENV.MAX_FAIL_RATE || 0.02);
 const MAX_P95_MS    = Number(__ENV.MAX_P95_MS || 2500);
+const MAX_P99_MS    = Number(__ENV.MAX_P99_MS || 5000);
 const ABORT_DELAY   = __ENV.ABORT_DELAY || '0s';
 const MAX_REDIRECTS = Number(__ENV.MAX_REDIRECTS || 10);
 const HTTP_TIMEOUT  = __ENV.HTTP_TIMEOUT || '60s';
@@ -21,14 +22,14 @@ const COURSE_PATH   = __ENV.COURSE_PATH || '/course/view.php?id=2';
 const QUIZ_PATH     = __ENV.QUIZ_PATH || '/mod/quiz/view.php?id=1';
 const AUTH_USER_PREFIX = __ENV.AUTH_USER_PREFIX || 'user';
 const AUTH_USER_START = Number(__ENV.AUTH_USER_START || 1);
-const AUTH_USER_COUNT = Number(__ENV.AUTH_USER_COUNT || 100);
+const AUTH_USER_COUNT = Number(__ENV.AUTH_USER_COUNT || 300);
 const AUTH_USER_PASSWORD = __ENV.AUTH_USER_PASSWORD || '123456';
 const QUIZ_DO_SUBMIT = (__ENV.QUIZ_DO_SUBMIT || 'true').toLowerCase() === 'true';
 const QUIZ_TEXT_ANSWER = __ENV.QUIZ_TEXT_ANSWER || '2';
 const QUIZ_TEXT_ANSWERS_RAW = (__ENV.QUIZ_TEXT_ANSWERS || '2,4,8').trim();
 const TEACHER_USER_PREFIX   = __ENV.TEACHER_USER_PREFIX || 'teacher';
 const TEACHER_USER_START    = Number(__ENV.TEACHER_USER_START || 1);
-const TEACHER_USER_COUNT    = Number(__ENV.TEACHER_USER_COUNT || 10);
+const TEACHER_USER_COUNT    = Number(__ENV.TEACHER_USER_COUNT || 60);
 const TEACHER_USER_PASSWORD = __ENV.TEACHER_USER_PASSWORD || '123456';
 const TEACHER_RATIO_PCT     = Number(__ENV.TEACHER_RATIO_PCT || 20);
 
@@ -128,6 +129,7 @@ export const options = {
     ],
     http_req_duration: [
       { threshold: `p(95)<=${MAX_P95_MS}`, abortOnFail: true, delayAbortEval: ABORT_DELAY },
+      { threshold: `p(99)<=${MAX_P99_MS}`, abortOnFail: true, delayAbortEval: ABORT_DELAY },
     ],
   },
 };

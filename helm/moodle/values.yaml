@@ -177,6 +177,8 @@ cron:
 
 cacheSetup:
   enabled: true
+  # Mount extra ini so APCu works under php-cli too (CronJob and ad-hoc CLI).
+  apcuIniOverlay: true
 
 redis:
   enabled: true
@@ -238,7 +240,7 @@ redis:
         cpu: 800m
         memory: 1024Mi
     # These values are exported to config.php as bootstrap hints.
-    # Actual MUC store mapping is handled by cache-setup hook.
+    # MUC wiring: cache-setup.yaml ConfigMap; applied by digitalocean/setup.sh after Moodle exists in DB.
     hostVarPrefix: "moodlecache_"
     database: 1
     customScriptsPath: ""

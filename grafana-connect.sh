@@ -100,20 +100,33 @@ fi
 echo "Grafana ready."
 
 if [[ "${IMPORT}" != "--no-import" && -d "${DASHBOARDS_DIR}" ]]; then
-  echo "Importing dashboards from ${DASHBOARDS_DIR}..."
-  for f in "${DASHBOARDS_DIR}"/*.json; do
-    [ -f "${f}" ] || continue
-    name="$(basename "${f}")"
-    payload="$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')"
-    result="$(curl -sS -u "${GF_USER}:${GF_PASS}" \
-      -X POST "http://127.0.0.1:${GRAFANA_LOCAL_PORT}/api/dashboards/db" \
-      -H "Content-Type: application/json" -d "${payload}" 2>/dev/null)"
-    import_status="$(echo "${result}" | python3 -c \
-      "import sys,json; d=json.load(sys.stdin); print(d.get('status',d.get('message','?')))" 2>/dev/null || echo "?")"
-    echo "  ${name}: ${import_status}"
-  done
+  _import_dashboard_folder() {
+    local dir="$1"
+    [[ -d "${dir}" ]] || return 0
+    echo "Importing dashboards from ${dir}..."
+    local f name payload result import_status
+    for f in "${dir}"/*.json; do
+      [ -f "${f}" ] || continue
+      name="$(basename "${f}")"
+      payload="$(jq -n --argjson d "$(cat "${f}")" '{dashboard:($d+{id:null}),overwrite:true,folderId:0}')"
+      result="$(curl -sS -u "${GF_USER}:${GF_PASS}" \
+        -X POST "http://127.0.0.1:${GRAFANA_LOCAL_PORT}/api/dashboards/db" \
+        -H "Content-Type: application/json" -d "${payload}" 2>/dev/null)"
+      import_status="$(echo "${result}" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); print(d.get('status',d.get('message','?')))" 2>/dev/null || echo "?")"
+      echo "  ${name}: ${import_status}"
+    done
+  }
+  _import_dashboard_folder "${DASHBOARDS_DIR}"
+  _import_dashboard_folder "${DASHBOARDS_DIR}/full"
 fi
 
+echo ""
+echo "Thesis report screenshots: set the time picker to the stress-test / k6 peak window"
+echo "  (e.g. last 30 minutes of the run), then export from:"
+echo "  - Moodle (Thesis) — Performance & Autoscale"
+echo "  - Moodle (Thesis) — Stack & Bottlenecks"
+echo "  Full ops dashboards (if imported) live under the same folder listing from .../dashboards/full/."
 echo ""
 echo "=============================================="
 echo "Grafana: http://localhost:${GRAFANA_LOCAL_PORT}"

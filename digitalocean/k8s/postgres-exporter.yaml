@@ -25,9 +25,7 @@ spec:
           image: prometheuscommunity/postgres-exporter:v0.15.0
           imagePullPolicy: IfNotPresent
           args:
-            - --auto-discover-databases
-            - --collector.stat_statements
-            - --collector.long_running_transactions
+            - --web.telemetry-path=/metrics
           env:
             - name: DATA_SOURCE_NAME
               valueFrom:
@@ -35,7 +33,7 @@ spec:
                   name: postgres-exporter-credentials
                   key: DATA_SOURCE_NAME
             - name: PG_EXPORTER_EXCLUDE_DATABASES
-              value: "template0,template1,defaultdb"
+              value: "template0,template1,defaultdb,_dodb"
           ports:
             - name: metrics
               containerPort: 9187
