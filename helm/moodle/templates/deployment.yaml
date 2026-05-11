@@ -62,6 +62,9 @@ spec:
               $CFG->prefix    = 'mdl_';
               $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
               $CFG->dataroot  = '/var/www/moodledata';
+              // Per-pod local cache (default $dataroot/localcache is on the shared PVC,
+              // which causes mkdir races between pods and intermittent HTTP 500 under load).
+              $CFG->localcachedir = '/tmp/moodlelocalcache';
               $CFG->directorypermissions = 0777;
               $CFG->sslproxy  = (getenv('MOODLE_SSL_PROXY') === 'true');
               $CFG->reverseproxy = (getenv('MOODLE_REVERSE_PROXY') === 'true');
