@@ -19,6 +19,7 @@ spec:
       maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
     {{- end }}
   template:
+    {{- $readReplicaPgb := and .Values.pgbouncer.enabled .Values.pgbouncer.readReplica.enabled (gt (len .Values.db.readonlyHosts) 0) }}
     metadata:
       labels:
         {{- include "moodle.selectorLabels" . | nindent 8 }}
@@ -62,6 +63,9 @@ spec:
               $CFG->prefix    = 'mdl_';
               $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
               $CFG->dataroot  = '/var/www/moodledata';
+              // Per-pod local cache (default $dataroot/localcache is on the shared PVC,
+              // which causes mkdir races between pods and intermittent HTTP 500 under load).
+              $CFG->localcachedir = '/tmp/moodlelocalcache';
               $CFG->directorypermissions = 0777;
               $CFG->sslproxy  = (getenv('MOODLE_SSL_PROXY') === 'true');
               $CFG->reverseproxy = (getenv('MOODLE_REVERSE_PROXY') === 'true');
@@ -149,9 +153,17 @@ spec:
             - name: MOODLE_REVERSE_PROXY
               value: {{ .Values.moodle.reverseProxy | quote }}
             - name: MOODLE_DB_READONLY_HOSTS
+              {{- if $readReplicaPgb }}
+              value: "127.0.0.1"
+              {{- else }}
               value: {{ join "," .Values.db.readonlyHosts | quote }}
+              {{- end }}
             - name: MOODLE_DB_READONLY_PORT
+              {{- if $readReplicaPgb }}
+              value: {{ .Values.pgbouncer.readReplica.listenPort | quote }}
+              {{- else }}
               value: {{ .Values.db.port | quote }}
+              {{- end }}
             - name: MOODLE_DB_READONLY_CONNECTTIMEOUT
               value: {{ .Values.db.readonly.connectTimeoutSeconds | quote }}
             - name: MOODLE_DB_READONLY_LATENCY
@@ -209,9 +221,17 @@ spec:
             - name: MOODLE_REVERSE_PROXY
               value: {{ .Values.moodle.reverseProxy | quote }}
             - name: MOODLE_DB_READONLY_HOSTS
+              {{- if $readReplicaPgb }}
+              value: "127.0.0.1"
+              {{- else }}
               value: {{ join "," .Values.db.readonlyHosts | quote }}
+              {{- end }}
             - name: MOODLE_DB_READONLY_PORT
+              {{- if $readReplicaPgb }}
+              value: {{ .Values.pgbouncer.readReplica.listenPort | quote }}
+              {{- else }}
               value: {{ .Values.db.port | quote }}
+              {{- end }}
             - name: MOODLE_DB_READONLY_CONNECTTIMEOUT
               value: {{ .Values.db.readonly.connectTimeoutSeconds | quote }}
             - name: MOODLE_DB_READONLY_LATENCY
@@ -307,6 +327,68 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.pgbouncer.resources | nindent 12 }}
+        {{- if $readReplicaPgb }}
+        - name: pgbouncer-read
+          image: {{ .Values.pgbouncer.image | quote }}
+          env:
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moodle.fullname" . }}-db
+                  key: MOODLE_DB_PASSWORD
+            - name: DB_HOST
+              value: {{ index .Values.db.readonlyHosts 0 | quote }}
+            - name: DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: DATABASE_URL
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)
+            - name: SERVER_TLS_SSLMODE
+              value: {{ .Values.db.sslmode | quote }}
+            - name: POOL_MODE
+              value: {{ .Values.pgbouncer.readReplica.poolMode | quote }}
+            - name: MAX_CLIENT_CONN
+              value: {{ .Values.pgbouncer.readReplica.maxClientConn | quote }}
+            - name: DEFAULT_POOL_SIZE
+              value: {{ .Values.pgbouncer.readReplica.defaultPoolSize | quote }}
+            - name: RESERVE_POOL_SIZE
+              value: {{ .Values.pgbouncer.readReplica.reservePoolSize | quote }}
+            - name: RESERVE_POOL_TIMEOUT
+              value: {{ .Values.pgbouncer.readReplica.reservePoolTimeoutSeconds | quote }}
+            - name: SERVER_IDLE_TIMEOUT
+              value: {{ .Values.pgbouncer.readReplica.serverIdleTimeoutSeconds | quote }}
+            - name: QUERY_WAIT_TIMEOUT
+              value: {{ .Values.pgbouncer.readReplica.queryWaitTimeoutSeconds | quote }}
+            - name: LISTEN_PORT
+              value: {{ .Values.pgbouncer.readReplica.listenPort | quote }}
+            - name: AUTH_TYPE
+              value: {{ .Values.pgbouncer.authType | quote }}
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: {{ .Values.pgbouncer.ignoreStartupParameters | quote }}
+            - name: STATS_USERS
+              value: {{ .Values.db.user | quote }}
+            - name: ADMIN_USERS
+              value: {{ .Values.db.user | quote }}
+          ports:
+            - name: pgbouncer-read
+              containerPort: {{ .Values.pgbouncer.readReplica.listenPort }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer-read
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer-read
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.pgbouncer.readReplica.resources | nindent 12 }}
+        {{- end }}
         {{- if and .Values.metrics.enabled .Values.metrics.pgbouncerExporter.enabled }}
         - name: pgbouncer-exporter
           image: {{ .Values.metrics.pgbouncerExporter.image | quote }}
@@ -336,6 +418,35 @@ spec:
             periodSeconds: 30
           resources:
             {{- toYaml .Values.metrics.pgbouncerExporter.resources | nindent 12 }}
+        {{- end }}
+        {{- if and $readReplicaPgb .Values.metrics.enabled .Values.metrics.pgbouncerReadReplicaExporter.enabled }}
+        - name: pgbouncer-read-exporter
+          image: {{ .Values.metrics.pgbouncerReadReplicaExporter.image | quote }}
+          env:
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moodle.fullname" . }}-db
+                  key: MOODLE_DB_PASSWORD
+            - name: PGBOUNCER_EXPORTER_CONNECTION_STRING
+              value: postgres://$(DB_USER):$(DB_PASSWORD)@127.0.0.1:{{ .Values.pgbouncer.readReplica.listenPort }}/pgbouncer?sslmode=disable
+          args:
+            - --pgBouncer.connectionString=$(PGBOUNCER_EXPORTER_CONNECTION_STRING)
+            - --web.listen-address=:{{ .Values.metrics.pgbouncerReadReplicaExporter.port }}
+          ports:
+            - name: pgb-ro-metrics
+              containerPort: {{ .Values.metrics.pgbouncerReadReplicaExporter.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: pgb-ro-metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.metrics.pgbouncerReadReplicaExporter.resources | nindent 12 }}
         {{- end }}
         {{- end }}
         {{- if and .Values.metrics.enabled .Values.metrics.phpFpmExporter.enabled }}

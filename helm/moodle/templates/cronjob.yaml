@@ -62,7 +62,29 @@ spec:
                   require_once(__DIR__ . '/lib/setup.php');
                   EOF
                   cd /moodle-html
-                  runuser -u www-data -- php admin/cli/cron.php --force
+                  # During Helm deploy / version bumps, web pods may hold the upgrade lock;
+                  # cron.php exits 1 with "Site is being upgraded" — retry instead of failing the Job.
+                  # Keep total wait under spec.activeDeadlineSeconds (default 600s).
+                  max_attempts=20
+                  sleep_secs=15
+                  attempt=1
+                  while [ "$attempt" -le "$max_attempts" ]; do
+                    out=$(runuser -u www-data -- php admin/cli/cron.php --force 2>&1)
+                    rc=$?
+                    echo "$out"
+                    if [ "$rc" -eq 0 ]; then
+                      exit 0
+                    fi
+                    if echo "$out" | grep -q "Site is being upgraded"; then
+                      echo "moodle-cron: upgrade lock (attempt $attempt/$max_attempts), sleeping ${sleep_secs}s"
+                      sleep "$sleep_secs"
+                      attempt=$((attempt + 1))
+                      continue
+                    fi
+                    exit "$rc"
+                  done
+                  echo "moodle-cron: gave up after $max_attempts attempts (upgrade still running?)"
+                  exit 1
               env:
                 - name: MOODLE_DB_TYPE
                   value: {{ .Values.db.type | quote }}

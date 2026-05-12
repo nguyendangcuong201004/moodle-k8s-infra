@@ -23,9 +23,9 @@ variable "db_storage_size_mib" {
 }
 
 variable "db_node_count" {
-  description = "Number of nodes in DB cluster"
+  description = "Number of nodes in DO Managed Postgres (2 = primary + hot standby for read replica / streaming replication)"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "enable_db_connection_pool" {

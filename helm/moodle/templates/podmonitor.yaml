@@ -1,5 +1,5 @@
 {{- if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled }}
-{{- if or .Values.metrics.phpFpmExporter.enabled (and .Values.pgbouncer.enabled .Values.metrics.pgbouncerExporter.enabled) }}
+{{- if or .Values.metrics.phpFpmExporter.enabled (and .Values.pgbouncer.enabled .Values.metrics.pgbouncerExporter.enabled) (and .Values.pgbouncer.enabled .Values.pgbouncer.readReplica.enabled (gt (len .Values.db.readonlyHosts) 0) .Values.metrics.pgbouncerReadReplicaExporter.enabled) }}
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -41,6 +41,19 @@ spec:
           targetLabel: namespace
         - targetLabel: component
           replacement: pgbouncer
+    {{- end }}
+    {{- if and .Values.pgbouncer.enabled .Values.pgbouncer.readReplica.enabled (gt (len .Values.db.readonlyHosts) 0) .Values.metrics.pgbouncerReadReplicaExporter.enabled }}
+    - port: pgb-ro-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - targetLabel: component
+          replacement: pgbouncer-read
     {{- end }}
 {{- end }}
 {{- if and .Values.redis.enabled .Values.metrics.redisExporter.enabled .Values.redis.session.enabled }}

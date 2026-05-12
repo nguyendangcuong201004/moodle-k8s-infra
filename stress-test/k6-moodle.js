@@ -22,14 +22,14 @@ const COURSE_PATH   = __ENV.COURSE_PATH || '/course/view.php?id=2';
 const QUIZ_PATH     = __ENV.QUIZ_PATH || '/mod/quiz/view.php?id=1';
 const AUTH_USER_PREFIX = __ENV.AUTH_USER_PREFIX || 'user';
 const AUTH_USER_START = Number(__ENV.AUTH_USER_START || 1);
-const AUTH_USER_COUNT = Number(__ENV.AUTH_USER_COUNT || 300);
+const AUTH_USER_COUNT = Number(__ENV.AUTH_USER_COUNT || 500);
 const AUTH_USER_PASSWORD = __ENV.AUTH_USER_PASSWORD || '123456';
 const QUIZ_DO_SUBMIT = (__ENV.QUIZ_DO_SUBMIT || 'true').toLowerCase() === 'true';
 const QUIZ_TEXT_ANSWER = __ENV.QUIZ_TEXT_ANSWER || '2';
 const QUIZ_TEXT_ANSWERS_RAW = (__ENV.QUIZ_TEXT_ANSWERS || '2,4,8').trim();
 const TEACHER_USER_PREFIX   = __ENV.TEACHER_USER_PREFIX || 'teacher';
 const TEACHER_USER_START    = Number(__ENV.TEACHER_USER_START || 1);
-const TEACHER_USER_COUNT    = Number(__ENV.TEACHER_USER_COUNT || 60);
+const TEACHER_USER_COUNT    = Number(__ENV.TEACHER_USER_COUNT || 100);
 const TEACHER_USER_PASSWORD = __ENV.TEACHER_USER_PASSWORD || '123456';
 const TEACHER_RATIO_PCT     = Number(__ENV.TEACHER_RATIO_PCT || 20);
 

@@ -55,6 +55,17 @@ flowchart TB
 | Background | **CronJob** runs Moodle scheduler (`role=cron`), separate from web pods (`role=web`). |
 | Observability | **kube-prometheus-stack**, optional **Grafana Cloud** push; **postgres-exporter** for managed Postgres; PodMonitors for exporters. **Two** merged Grafana JSON dashboards under `grafana/dashboards/` (operations/SLO vs stack/cluster). |
 
+### PostgreSQL: two-node cluster and read/write split
+
+Terraform variable [`db_node_count`](digitalocean/variables.tf) defaults to **2** (primary + hot standby with streaming replication on DigitalOcean Managed Postgres). Use the same `db_size` for both nodes (symmetric tier, for example `db-s-2vcpu-4gb` or a larger plan if you need more RAM for `shared_buffers`).
+
+For Moodle to send **SELECT** traffic to the standby while keeping writes on the primary:
+
+- Set `MOODLE_ENABLE_READ_SPLIT=true` and `MOODLE_USE_MANAGED_POOL=false` in `.env` (see [`.env.example`](.env.example)). The managed DO connection pool and the current read-split wiring in [`lib/helpers.sh`](digitalocean/lib/helpers.sh) / [`lib/steps.sh`](digitalocean/lib/steps.sh) are mutually exclusive.
+- After apply, `setup.sh` discovers the standby hostname from the DO API (`standby_connection.host`), passes it to Helm as `db.readonlyHosts[0]`, and enables a **second PgBouncer sidecar** on port **6433** so readonly queries are pooled to the replica (primary stays on **6432**).
+
+**Observability:** scrape `pg_stat_replication` on the primary (e.g. from `psql` or any Postgres client) to inspect standby `replay_lag`. The web PodMonitor includes a second target **`pgb-ro-metrics`** (port 9128) when the read sidecar is active—use it with Grafana for pool wait vs the primary PgBouncer metrics. When a standby host is configured, `step_postgres_exporter` also deploys **`postgres-exporter-standby`** (ServiceMonitor on port 9188) so Prometheus can scrape replica-side stats (e.g. WAL receiver, connection load).
+
 ## Prerequisites
 
 - Terraform ≥ 1.9, kubectl, Helm ≥ 3, jq, curl  
@@ -78,6 +89,10 @@ MOODLE_STAGING_WWWROOT=https://staging-lms.example.com
 
 # Optional: Cloudflare token for ExternalDNS
 # CF_API_TOKEN=...
+
+# Read replica (2-node DB): see "PostgreSQL: two-node cluster" above
+MOODLE_ENABLE_READ_SPLIT=true
+MOODLE_USE_MANAGED_POOL=false
 ```
 
 ## Commands (DigitalOcean)
@@ -93,6 +108,16 @@ cd digitalocean
 ```
 
 After deploy, `setup.sh` prints the site URL and `export KUBECONFIG=.../kubeconfig-<workspace>`.
+
+### Troubleshooting: `Kubernetes cluster unreachable` / `dial tcp ...:443: i/o timeout`
+
+That message comes from **kubectl/helm** when your workstation cannot reach the **DOKS API server** (not a Moodle chart bug). Check:
+
+- From the same shell: `export KUBECONFIG=.../digitalocean/kubeconfig-<workspace>` then `kubectl cluster-info` or `kubectl get ns`.
+- Corporate VPN, proxy, or firewall blocking **outbound HTTPS** to the cluster endpoint.
+- In the DigitalOcean control plane, **Kubernetes API** “trusted sources” / IP allowlist: your current public IP must be allowed if the feature is enabled.
+- Retry after a few minutes; `setup.sh` also **retries `helm`** (`HELM_RETRIES`, `HELM_RETRY_DELAY_SEC` in [`digitalocean/config.sh`](digitalocean/config.sh)) to ride out short outages.
+- A one-off log line like `memcache.go ... i/o timeout` during OpenAPI discovery can appear even when `kubectl cluster-info` succeeds; it is often transient. If it persists, set e.g. `export KUBECTL_CACHE_DIR="${TMPDIR:-/tmp}/kubectl-cache"` or upgrade `kubectl`.
 
 ## What `setup.sh` runs (order)
 
