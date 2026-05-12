@@ -34,13 +34,14 @@ DB_POOL_HOST="" DB_POOL_NAME="" DB_POOL_PORT="0" DB_POOL_PASS=""
 DB_APP_HOST="" DB_APP_PORT="" DB_APP_PASS="" DB_APP_NAME="" DB_READONLY_HOST=""
 USE_MANAGED_POOL="false"
 MOODLE_USE_MANAGED_POOL="${MOODLE_USE_MANAGED_POOL:-false}"
-MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-false}"
+# Read replica wiring (standby host from DO API) requires sidecar PgBouncer, not DO managed pool.
+MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-true}"
 
 # PgBouncer sidecar when not using managed pool
 PGBOUNCER_POOL_MODE="${PGBOUNCER_POOL_MODE:-session}"
 PGBOUNCER_AUTH_TYPE="${PGBOUNCER_AUTH_TYPE:-scram-sha-256}"
 # Per-pod upstream limit; ~floor(85/replicaCount) for 97-conn tier when using sidecar (not managed pool).
-PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-14}"
+PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-13}"
 PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-5}"
 PGBOUNCER_MAX_CLIENT_CONN="${PGBOUNCER_MAX_CLIENT_CONN:-2000}"
 
@@ -67,6 +68,10 @@ MOODLE_POD=""
 # Timing
 STEP4_MAX_WAIT_SEC="${MOODLE_STEP4_MAX_WAIT_SEC:-1800}"
 STEP4_POLL_SEC="${MOODLE_STEP4_POLL_SEC:-10}"
+
+# Helm → apiserver (same path as kubectl; helps flaky networks during long setup.sh runs)
+HELM_RETRIES="${HELM_RETRIES:-8}"
+HELM_RETRY_DELAY_SEC="${HELM_RETRY_DELAY_SEC:-15}"
 
 # Plugins to disable (keep e.g. quiz, resource/page, folder, url, assign, h5p)
 MOODLE_DISABLED_PLUGINS=(

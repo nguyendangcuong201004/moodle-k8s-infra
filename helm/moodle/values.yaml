@@ -43,9 +43,10 @@ db:
     connectTimeoutSeconds: 2
     latencySeconds: 1
 
-# PgBouncer sidecar in each web pod: app -> localhost:6432 -> managed Postgres
+# PgBouncer sidecar in each web pod: app -> localhost:6432 -> primary Postgres
 # When using DO managed pool (pgbouncer.enabled=false), pool size is set in Terraform (default 85).
-# With sidecar: keep replicaCount × defaultPoolSize under the DB connection limit (e.g. 6×14 ≈ 84 < 97).
+# With read replica + readReplica.enabled: Moodle readonly -> localhost:6433 -> standby (second sidecar).
+# Keep replicaCount × defaultPoolSize under each node's connection limit (e.g. db-s-2vcpu-4gb ≈ 97: 6×13=78 per primary and per standby when read replica sidecar is on).
 pgbouncer:
   enabled: true
   image: edoburu/pgbouncer:latest
@@ -54,7 +55,7 @@ pgbouncer:
   authType: scram-sha-256
   poolMode: session
   maxClientConn: 1200
-  defaultPoolSize: 14
+  defaultPoolSize: 13
   reservePoolSize: 3
   reservePoolTimeoutSeconds: 3
   serverIdleTimeoutSeconds: 30
@@ -67,6 +68,24 @@ pgbouncer:
     limits:
       cpu: 500m
       memory: 384Mi
+  # Second sidecar: pools SELECT traffic to standby (db.readonlyHosts[0]). Enabled by digitalocean/setup.sh when read split is on.
+  readReplica:
+    enabled: false
+    listenPort: 6433
+    poolMode: session
+    maxClientConn: 1200
+    defaultPoolSize: 13
+    reservePoolSize: 3
+    reservePoolTimeoutSeconds: 3
+    serverIdleTimeoutSeconds: 30
+    queryWaitTimeoutSeconds: 120
+    resources:
+      requests:
+        cpu: 150m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 384Mi
 
 # Moodle application settings (REQUIRED: wwwroot)
 moodle:
@@ -286,6 +305,19 @@ metrics:
     enabled: true
     image: prometheuscommunity/pgbouncer-exporter:v0.12.0
     port: 9127
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  # Scrapes the read-replica PgBouncer admin (port 6433) when readReplica sidecar is enabled.
+  pgbouncerReadReplicaExporter:
+    enabled: true
+    image: prometheuscommunity/pgbouncer-exporter:v0.12.0
+    port: 9128
     resources:
       requests:
         cpu: 20m

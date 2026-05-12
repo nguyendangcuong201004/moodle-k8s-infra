@@ -34,7 +34,7 @@ step_longhorn() {
     kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.7.2/deploy/longhorn.yaml
   fi
 
-  kubectl -n longhorn-system rollout status daemonset/longhorn-manager --timeout=600s \
+  _kubectl -n longhorn-system rollout status daemonset/longhorn-manager --timeout=600s \
     || { echo "Longhorn manager daemonset not ready"; exit 1; }
 
   # Wait until the longhorn StorageClass appears before deploying workloads.
@@ -54,7 +54,7 @@ step_metrics_server() {
   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
   kubectl -n kube-system patch deployment metrics-server --type='json' \
     -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
-  kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s || true
+  _kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s || true
 }
 
 # Step 3: kube-prometheus-stack + prometheus-adapter
@@ -156,8 +156,29 @@ step_postgres_exporter() {
 
   kubectl apply -f "${manifest}"
   kubectl -n monitoring rollout restart deployment/postgres-exporter 2>/dev/null || true
-  kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=120s \
+  # Use _kubectl: rollout timeouts must not multiply by KUBECTL_RETRIES (kubectl is wrapped in helpers.sh).
+  _kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=120s \
     || echo "postgres-exporter not ready (continuing)"
+
+  # Standby metrics (replication lag from standby POV: pg_stat_wal_receiver, DB load on replica)
+  local standby_manifest="${DO_DIR}/k8s/postgres-exporter-standby.yaml"
+  if [[ -n "${DB_READONLY_HOST:-}" && "${DB_READONLY_HOST}" != "${DB_HOST:-}" && -f "${standby_manifest}" ]]; then
+    local ro_dsn
+    ro_dsn="postgresql://doadmin:${pw}@${DB_READONLY_HOST}:${DB_PORT}/${DB_NAME}?sslmode=require"
+    kubectl create secret generic postgres-exporter-standby-credentials -n monitoring \
+      --from-literal=DATA_SOURCE_NAME="${ro_dsn}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f "${standby_manifest}"
+    kubectl -n monitoring rollout restart deployment/postgres-exporter-standby 2>/dev/null || true
+    # Standby rollout can wait on old pod termination; longer timeout, no kubectl_retry wrapping.
+    _kubectl -n monitoring rollout status deployment/postgres-exporter-standby --timeout=300s \
+      || echo "postgres-exporter-standby not ready (continuing); check: kubectl -n monitoring get pods -l app.kubernetes.io/name=postgres-exporter-standby -o wide"
+  else
+    kubectl delete deployment/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+    kubectl delete svc/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+    kubectl delete servicemonitor/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+    kubectl delete secret/postgres-exporter-standby-credentials -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  fi
 }
 
 step_k6_synthetic_probe() {
@@ -250,8 +271,12 @@ step_helm_deploy() {
   local ro_args=()
   if [[ "${USE_MANAGED_POOL}" != "true" && "${MOODLE_ENABLE_READ_SPLIT}" == "true" \
         && -n "${DB_READONLY_HOST}" && "${DB_READONLY_HOST}" != "${DB_HOST}" ]]; then
-    ro_args=(--set-string "db.readonlyHosts[0]=${DB_READONLY_HOST}")
-    echo "Read split: write=${DB_HOST} read=${DB_READONLY_HOST}"
+    ro_args=(
+      --set-string "db.readonlyHosts[0]=${DB_READONLY_HOST}"
+      --set pgbouncer.readReplica.enabled=true
+      --set "pgbouncer.readReplica.defaultPoolSize=${PGBOUNCER_DEFAULT_POOL_SIZE}"
+    )
+    echo "Read split: write=${DB_HOST} read=${DB_READONLY_HOST} (PgBouncer read sidecar :6433)"
   fi
 
   helm upgrade --install moodle "${HELM_CHART}" \
@@ -359,6 +384,9 @@ step_external_dns() {
 # Step 5: GRANT on schema public + ensure pg_stat_statements
 step_db_grant() {
   echo "=== DB GRANT ==="
+  # Flaky paths to DOKS: skip OpenAPI validation (fewer apiserver round-trips), bound HTTP wait,
+  # and use --wait=false on deletes to avoid extra watch traffic. See helpers ensure_namespace / helm apply.
+  local -a k=(--request-timeout="${KUBECTL_REQUEST_TIMEOUT:-120s}")
   local pw="${DO_DB_ADMIN_PASSWORD:-}"
   [[ -z "${pw}" ]] && pw="$(k8s_secret default do-db-admin-grant PGPASSWORD)"
   if [[ -z "${pw}" ]]; then
@@ -368,11 +396,15 @@ step_db_grant() {
   fi
   [[ -z "${pw}" ]] && { echo "Cannot get doadmin password"; exit 1; }
 
+  # Warm discovery/cache with the same retry wrapper as other kubectl calls.
+  kubectl "${k[@]}" get ns default -o name >/dev/null 2>&1 || true
+
   kubectl create secret generic do-db-admin-grant \
-    --from-literal=PGPASSWORD="${pw}" --dry-run=client -o yaml | kubectl apply -f -
+    --from-literal=PGPASSWORD="${pw}" --dry-run=client -o yaml \
+    | kubectl apply "${k[@]}" --validate=false -f -
 
   local job="moodle-db-grant-$(date +%s)"
-  kubectl apply -f - <<EOF
+  kubectl apply "${k[@]}" --validate=false -f - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -395,11 +427,13 @@ spec:
             -c 'GRANT CREATE ON SCHEMA public TO ${DB_USER};'"]
 EOF
 
-  kubectl wait --for=condition=complete "job/${job}" --timeout=120s \
-    || { kubectl logs "job/${job}" 2>/dev/null; kubectl delete job "${job}" --ignore-not-found; \
-         kubectl delete secret do-db-admin-grant --ignore-not-found; exit 1; }
-  kubectl delete job "${job}" --ignore-not-found
-  kubectl delete secret do-db-admin-grant --ignore-not-found
+  kubectl "${k[@]}" wait --for=condition=complete "job/${job}" --timeout=120s \
+    || { kubectl "${k[@]}" logs "job/${job}" --tail=200 2>/dev/null || true
+         kubectl "${k[@]}" delete job "${job}" --ignore-not-found --wait=false
+         kubectl "${k[@]}" delete secret do-db-admin-grant --ignore-not-found --wait=false
+         exit 1; }
+  kubectl "${k[@]}" delete job "${job}" --ignore-not-found --wait=false
+  kubectl "${k[@]}" delete secret do-db-admin-grant --ignore-not-found --wait=false
   echo "GRANT done."
 }
 

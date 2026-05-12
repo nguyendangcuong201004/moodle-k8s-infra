@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # K8s helpers and Terraform wrapper (sourced by setup.sh).
+# Note: use _kubectl for long "rollout status --timeout=..." so failures are not retried KUBECTL_RETRIES times.
 
 KUBECTL_RETRIES="${KUBECTL_RETRIES:-6}"
 KUBECTL_RETRY_DELAY_SEC="${KUBECTL_RETRY_DELAY_SEC:-3}"
@@ -29,6 +30,32 @@ kubectl_retry() {
 
 kubectl() {
   kubectl_retry "$@"
+}
+
+_helm() {
+  command helm "$@"
+}
+
+# Retries help when the DOKS API endpoint returns i/o timeout (local firewall, VPN, or transient DO path).
+helm_retry() {
+  local attempt=1 status=0 max="${HELM_RETRIES:-8}" delay="${HELM_RETRY_DELAY_SEC:-15}"
+  while (( attempt <= max )); do
+    if _helm "$@"; then
+      return 0
+    fi
+    status=$?
+    if (( attempt >= max )); then
+      return "${status}"
+    fi
+    echo "helm failed (${attempt}/${max}), retrying in ${delay}s..." >&2
+    sleep "${delay}"
+    ((attempt++))
+  done
+  return "${status}"
+}
+
+helm() {
+  helm_retry "$@"
 }
 
 # Decoded value from a Kubernetes secret key.
