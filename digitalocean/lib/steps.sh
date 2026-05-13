@@ -45,6 +45,36 @@ step_longhorn() {
   done
   kubectl get sc longhorn >/dev/null 2>&1 \
     || { echo "StorageClass 'longhorn' not found after install"; exit 1; }
+
+  # Staging only: StorageClass.parameters are immutable. Create a dedicated
+  # class with a lower replica count instead of patching `longhorn`.
+  if [[ "${WORKSPACE}" == "staging" ]]; then
+    local stage_sc stage_replicas
+    stage_sc="${STAGING_LONGHORN_STORAGECLASS:-longhorn-staging-r1}"
+    stage_replicas="${STAGING_LONGHORN_SC_REPLICA_COUNT:-1}"
+    echo "Staging mode: ensuring StorageClass ${stage_sc} (replicas=${stage_replicas})"
+    kubectl apply -f - <<EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ${stage_sc}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "${stage_replicas}"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+  fsType: "ext4"
+  dataLocality: "disabled"
+  unmapMarkSnapChainRemoved: "ignored"
+  disableRevisionCounter: "true"
+  dataEngine: "v1"
+EOF
+  fi
 }
 
 # Step 2: metrics-server (for HPA)
@@ -269,6 +299,39 @@ step_helm_deploy() {
     || { echo "Missing StorageClass 'longhorn'. Run Longhorn install first."; exit 1; }
 
   local ro_args=()
+  local stage_args=()
+  local target_storage_class="longhorn"
+
+  if [[ "${WORKSPACE}" == "staging" ]]; then
+    target_storage_class="${STAGING_LONGHORN_STORAGECLASS:-longhorn-staging-r1}"
+  fi
+
+  # Staging only: if moodle-data PVC exists with a different size, reset it.
+  # PVC shrink is not supported by Kubernetes; keeping stale larger PVC often
+  # leaves Longhorn volume scheduling faulted on small staging pools.
+  if [[ "${WORKSPACE}" == "staging" && -n "${STAGING_MOODLEDATA_SIZE:-}" ]]; then
+    local current_pvc_size current_pv_name current_pvc_sc
+    current_pvc_size="$(kubectl -n "${MOODLE_NAMESPACE}" get pvc moodle-data -o jsonpath='{.spec.resources.requests.storage}' 2>/dev/null || true)"
+    current_pv_name="$(kubectl -n "${MOODLE_NAMESPACE}" get pvc moodle-data -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)"
+    current_pvc_sc="$(kubectl -n "${MOODLE_NAMESPACE}" get pvc moodle-data -o jsonpath='{.spec.storageClassName}' 2>/dev/null || true)"
+    if [[ -n "${current_pvc_size}" && ( "${current_pvc_size}" != "${STAGING_MOODLEDATA_SIZE}" || "${current_pvc_sc}" != "${target_storage_class}" ) ]]; then
+      echo "Staging mode: resetting moodle-data PVC (size=${current_pvc_size} sc=${current_pvc_sc} -> size=${STAGING_MOODLEDATA_SIZE} sc=${target_storage_class})"
+      helm -n "${MOODLE_NAMESPACE}" uninstall "${MOODLE_RELEASE_NAME}" >/dev/null 2>&1 || true
+      kubectl -n "${MOODLE_NAMESPACE}" delete pvc moodle-data --ignore-not-found=true
+      if [[ -n "${current_pv_name}" ]]; then
+        kubectl -n longhorn-system delete volumes.longhorn.io "${current_pv_name}" --ignore-not-found=true >/dev/null 2>&1 || true
+      fi
+
+      local i
+      for i in {1..30}; do
+        kubectl -n "${MOODLE_NAMESPACE}" get pvc moodle-data >/dev/null 2>&1 || break
+        sleep 2
+      done
+      kubectl -n "${MOODLE_NAMESPACE}" get pvc moodle-data >/dev/null 2>&1 \
+        && { echo "Failed to reset staging moodle-data PVC"; exit 1; }
+    fi
+  fi
+
   if [[ "${USE_MANAGED_POOL}" != "true" && "${MOODLE_ENABLE_READ_SPLIT}" == "true" \
         && -n "${DB_READONLY_HOST}" && "${DB_READONLY_HOST}" != "${DB_HOST}" ]]; then
     ro_args=(
@@ -279,6 +342,26 @@ step_helm_deploy() {
     echo "Read split: write=${DB_HOST} read=${DB_READONLY_HOST} (PgBouncer read sidecar :6433)"
   fi
 
+  if [[ "${WORKSPACE}" == "staging" && -n "${STAGING_MOODLE_REPLICA_COUNT:-}" ]]; then
+    stage_args+=(--set replicaCount="${STAGING_MOODLE_REPLICA_COUNT}")
+    echo "Staging mode: replicaCount=${STAGING_MOODLE_REPLICA_COUNT}"
+  fi
+  if [[ "${WORKSPACE}" == "staging" && -n "${STAGING_MOODLEDATA_SIZE:-}" ]]; then
+    stage_args+=(--set persistence.size="${STAGING_MOODLEDATA_SIZE}")
+    echo "Staging mode: persistence.size=${STAGING_MOODLEDATA_SIZE}"
+  fi
+  if [[ "${WORKSPACE}" == "staging" ]]; then
+    stage_args+=(
+      --set resources.requests.cpu="${STAGING_MOODLE_CPU_REQUEST}"
+      --set resources.requests.memory="${STAGING_MOODLE_MEMORY_REQUEST}"
+      --set pgbouncer.resources.requests.cpu="${STAGING_PGBOUNCER_CPU_REQUEST}"
+      --set pgbouncer.resources.requests.memory="${STAGING_PGBOUNCER_MEMORY_REQUEST}"
+      --set pgbouncer.readReplica.resources.requests.cpu="${STAGING_PGBOUNCER_CPU_REQUEST}"
+      --set pgbouncer.readReplica.resources.requests.memory="${STAGING_PGBOUNCER_MEMORY_REQUEST}"
+    )
+    echo "Staging mode: web request cpu=${STAGING_MOODLE_CPU_REQUEST} mem=${STAGING_MOODLE_MEMORY_REQUEST}"
+  fi
+
   helm upgrade --install moodle "${HELM_CHART}" \
     --namespace "${MOODLE_NAMESPACE}" --create-namespace \
     -f "${HELM_CHART}/values.yaml" \
@@ -286,12 +369,12 @@ step_helm_deploy() {
     --set db.name="${DB_APP_NAME}" --set db.user="${DB_USER}" \
     --set db.password="${DB_APP_PASS}" --set db.sslmode=require \
     --set moodle.wwwroot="${SITE_URL}" \
-    --set persistence.storageClass=longhorn \
+    --set persistence.storageClass="${target_storage_class}" \
     --set service.type=LoadBalancer \
     --set ingress.enabled=false \
     --set "service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}" \
     --set "service.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
-    "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}"
+    "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}" "${stage_args[@]}"
 }
 
 # Apply MUC caches from Helm-rendered ConfigMap after Moodle exists in DB (cannot run sooner).

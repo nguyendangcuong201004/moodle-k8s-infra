@@ -65,6 +65,28 @@ MOODLE_EXEC_CONTAINER="${MOODLE_K8S_MAIN_CONTAINER:-moodle}"
 MOODLE_WEB_SELECTOR="app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web"
 MOODLE_POD=""
 
+# Workspace-specific capacity controls.
+# Keep production defaults from Terraform variables, but allow staging to be
+# intentionally smaller to fit tighter droplet limits while retaining autoscale.
+if [[ "${WORKSPACE}" == "staging" ]]; then
+  export TF_VAR_enable_node_autoscale="${STAGING_ENABLE_NODE_AUTOSCALE:-true}"
+  export TF_VAR_node_pool_count="${STAGING_NODE_POOL_COUNT:-3}"
+  export TF_VAR_node_pool_min_nodes="${STAGING_NODE_POOL_MIN_NODES:-3}"
+  export TF_VAR_node_pool_max_nodes="${STAGING_NODE_POOL_MAX_NODES:-3}"
+  export TF_VAR_node_pool_size="${STAGING_NODE_POOL_SIZE:-s-2vcpu-4gb}"
+
+  # Optional Helm/Longhorn downsize for staging app pods (cost/CICD only).
+  # Defaults are intentionally small so staging can co-exist with production under tight quotas.
+  STAGING_MOODLE_REPLICA_COUNT="${STAGING_MOODLE_REPLICA_COUNT:-1}"
+  STAGING_MOODLEDATA_SIZE="${STAGING_MOODLEDATA_SIZE:-20Gi}"
+  STAGING_LONGHORN_SC_REPLICA_COUNT="${STAGING_LONGHORN_SC_REPLICA_COUNT:-1}"
+  STAGING_LONGHORN_STORAGECLASS="${STAGING_LONGHORN_STORAGECLASS:-longhorn-staging-r1}"
+  STAGING_MOODLE_CPU_REQUEST="${STAGING_MOODLE_CPU_REQUEST:-500m}"
+  STAGING_MOODLE_MEMORY_REQUEST="${STAGING_MOODLE_MEMORY_REQUEST:-1024Mi}"
+  STAGING_PGBOUNCER_CPU_REQUEST="${STAGING_PGBOUNCER_CPU_REQUEST:-120m}"
+  STAGING_PGBOUNCER_MEMORY_REQUEST="${STAGING_PGBOUNCER_MEMORY_REQUEST:-96Mi}"
+fi
+
 # Timing
 STEP4_MAX_WAIT_SEC="${MOODLE_STEP4_MAX_WAIT_SEC:-1800}"
 STEP4_POLL_SEC="${MOODLE_STEP4_POLL_SEC:-10}"
