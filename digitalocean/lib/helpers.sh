@@ -15,9 +15,11 @@ kubectl_retry() {
   local attempt=1 status=1
   while (( attempt <= KUBECTL_RETRIES )); do
     if _kubectl "$@"; then
+      status=0
       return 0
+    else
+      status=$?
     fi
-    status=$?
     if (( attempt >= KUBECTL_RETRIES )); then
       break
     fi
@@ -41,9 +43,11 @@ helm_retry() {
   local attempt=1 status=0 max="${HELM_RETRIES:-8}" delay="${HELM_RETRY_DELAY_SEC:-15}"
   while (( attempt <= max )); do
     if _helm "$@"; then
+      status=0
       return 0
+    else
+      status=$?
     fi
-    status=$?
     if (( attempt >= max )); then
       return "${status}"
     fi
@@ -154,8 +158,8 @@ run_terraform() {
   fi
 
   export TF_IN_AUTOMATION=1 TF_LOG=ERROR
-  terraform apply -auto-approve 2>&1 | grep -v "Still creating" || true
-  [[ ${PIPESTATUS[0]} -ne 0 ]] && exit 1
+  # Keep output readable but fail fast on real terraform errors.
+  terraform apply -auto-approve 2>&1 | sed '/Still creating/d'
 
   # Parse outputs
   local j; j=$(terraform output -json)

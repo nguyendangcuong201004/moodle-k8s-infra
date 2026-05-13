@@ -93,6 +93,22 @@ MOODLE_STAGING_WWWROOT=https://staging-lms.example.com
 # Read replica (2-node DB): see "PostgreSQL: two-node cluster" above
 MOODLE_ENABLE_READ_SPLIT=true
 MOODLE_USE_MANAGED_POOL=false
+
+# Optional: keep production settings unchanged, squeeze staging capacity.
+# Useful when team droplet_limit is low but you need staging+production in parallel.
+STAGING_ENABLE_NODE_AUTOSCALE=true
+STAGING_NODE_POOL_SIZE=s-2vcpu-4gb
+STAGING_NODE_POOL_COUNT=3
+STAGING_NODE_POOL_MIN_NODES=3
+STAGING_NODE_POOL_MAX_NODES=3
+STAGING_MOODLE_REPLICA_COUNT=1
+STAGING_MOODLEDATA_SIZE=20Gi
+STAGING_LONGHORN_SC_REPLICA_COUNT=1
+STAGING_LONGHORN_STORAGECLASS=longhorn-staging-r1
+STAGING_MOODLE_CPU_REQUEST=500m
+STAGING_MOODLE_MEMORY_REQUEST=1024Mi
+STAGING_PGBOUNCER_CPU_REQUEST=120m
+STAGING_PGBOUNCER_MEMORY_REQUEST=96Mi
 ```
 
 ## Commands (DigitalOcean)
