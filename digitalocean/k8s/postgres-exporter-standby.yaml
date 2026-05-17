@@ -34,7 +34,7 @@ spec:
               value: "template0,template1,defaultdb,_dodb"
           ports:
             - name: metrics
-              containerPort: 9188
+              containerPort: 9187
               protocol: TCP
           readinessProbe:
             httpGet:

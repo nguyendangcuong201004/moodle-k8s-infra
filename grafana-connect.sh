@@ -121,11 +121,12 @@ if [[ "${IMPORT}" != "--no-import" && -d "${DASHBOARDS_DIR}" ]]; then
 fi
 
 echo ""
-echo "Thesis / ops screenshots: set the time picker to the stress-test / k6 peak window"
+echo "Thesis / ops screenshots: set the time picker to the workload/stress-test window"
 echo "  (e.g. last 30 minutes of the run), then export from:"
-echo "  - Moodle — Operations, SLO & scale"
-echo "  - Moodle — Stack saturation & cluster"
-echo "  (Both JSON files live under grafana/dashboards/.)"
+echo "  - Moodle — Workload, autoscale & cluster"
+echo "  - Moodle — Runtime stack saturation"
+echo "  - Moodle — Database read/write & replication"
+echo "  (JSON files live under grafana/dashboards/.)"
 echo ""
 echo "=============================================="
 echo "Grafana: http://localhost:${GRAFANA_LOCAL_PORT}"

@@ -35,7 +35,9 @@ DB_APP_HOST="" DB_APP_PORT="" DB_APP_PASS="" DB_APP_NAME="" DB_READONLY_HOST=""
 USE_MANAGED_POOL="false"
 MOODLE_USE_MANAGED_POOL="${MOODLE_USE_MANAGED_POOL:-false}"
 # Read replica wiring (standby host from DO API) requires sidecar PgBouncer, not DO managed pool.
-MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-true}"
+# Keep this opt-in: write-heavy quiz/exam flows need read-your-writes semantics and can break
+# when Moodle reads a just-created attempt from a lagging standby.
+MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-false}"
 
 # PgBouncer sidecar when not using managed pool
 PGBOUNCER_POOL_MODE="${PGBOUNCER_POOL_MODE:-session}"

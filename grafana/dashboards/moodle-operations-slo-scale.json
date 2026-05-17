@@ -1,11 +1,11 @@
 {
-  "title": "Moodle — Operations, SLO & scale",
-  "description": "Merged: synthetic k6 probes (incl. checks/VUs), Moodle & Redis pod resources, CronJob & network, deployment/HPA, Moodle CPU vs limits — single dashboard (replaces Overview + Thesis Performance).",
+  "title": "Moodle \u2014 Workload, autoscale & cluster",
+  "description": "Kubernetes workload health: Moodle pods, HPA, CronJobs, network, Redis pod resources, CPU limits/throttling, and node capacity. Synthetic k6 probe panels intentionally removed.",
   "tags": [
     "moodle",
     "kubernetes",
-    "slo",
-    "hpa"
+    "autoscale",
+    "cluster"
   ],
   "timezone": "browser",
   "refresh": "30s",
@@ -17,7 +17,7 @@
     {
       "id": 1,
       "type": "row",
-      "title": "Synthetic probes (k6)",
+      "title": "Moodle pods & autoscale",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -27,180 +27,13 @@
     },
     {
       "id": 2,
-      "title": "Synthetic Probe — Requests / sec",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 1
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(k6_http_reqs_total{testid=\"moodle-synthetic\"}[5m]))",
-          "legendFormat": "req/s",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line"
-          }
-        }
-      }
-    },
-    {
-      "id": 3,
-      "title": "Synthetic Probe — Latency (avg / p95 / p99)",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 8,
-        "y": 1
-      },
-      "targets": [
-        {
-          "expr": "k6_http_req_duration_avg{testid=\"moodle-synthetic\"}",
-          "legendFormat": "avg",
-          "refId": "A"
-        },
-        {
-          "expr": "k6_http_req_duration_p95{testid=\"moodle-synthetic\"}",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "expr": "k6_http_req_duration_p99{testid=\"moodle-synthetic\"}",
-          "legendFormat": "p99",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "decimals": 2
-        }
-      }
-    },
-    {
-      "id": 4,
-      "title": "Synthetic Probe — Failure Rate",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 16,
-        "y": 1
-      },
-      "targets": [
-        {
-          "expr": "k6_http_req_failed_rate{testid=\"moodle-synthetic\"}",
-          "legendFormat": "failed rate",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "decimals": 4
-        }
-      }
-    },
-    {
-      "id": 5,
-      "title": "Synthetic Probe - Checks Pass Rate",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 7
-      },
-      "targets": [
-        {
-          "expr": "k6_checks_rate{testid=\"moodle-synthetic\"}",
-          "legendFormat": "checks pass rate",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "decimals": 4
-        }
-      }
-    },
-    {
-      "id": 6,
-      "title": "Synthetic Probe - Iterations / sec",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 8,
-        "y": 7
-      },
-      "targets": [
-        {
-          "expr": "rate(k6_iterations_total{testid=\"moodle-synthetic\"}[5m])",
-          "legendFormat": "iters/s",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 2
-        }
-      }
-    },
-    {
-      "id": 7,
-      "title": "Synthetic Probe - Active VUs",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 16,
-        "y": 7
-      },
-      "targets": [
-        {
-          "expr": "k6_vus{testid=\"moodle-synthetic\"}",
-          "legendFormat": "vus",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0
-        }
-      }
-    },
-    {
-      "id": 8,
-      "type": "row",
-      "title": "Moodle pods & autoscale",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 13
-      }
-    },
-    {
-      "id": 9,
       "title": "Pod CPU Usage",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 1
       },
       "targets": [
         {
@@ -223,14 +56,14 @@
       }
     },
     {
-      "id": 10,
+      "id": 3,
       "title": "Pod Memory Usage",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 1
       },
       "targets": [
         {
@@ -253,39 +86,39 @@
       }
     },
     {
-      "id": 11,
-      "title": "Replicas — Deployment (spec vs ready) & HPA when present",
+      "id": 4,
+      "title": "Replicas \u2014 Deployment (spec vs ready) & HPA when present",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 22
+        "y": 9
       },
       "targets": [
         {
           "expr": "kube_deployment_spec_replicas{namespace=\"moodle\"}",
-          "legendFormat": "{{ deployment }} — spec (desired)",
+          "legendFormat": "{{ deployment }} \u2014 spec (desired)",
           "refId": "A"
         },
         {
           "expr": "kube_deployment_status_replicas_available{namespace=\"moodle\"}",
-          "legendFormat": "{{ deployment }} — ready",
+          "legendFormat": "{{ deployment }} \u2014 ready",
           "refId": "B"
         },
         {
           "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"moodle\"}",
-          "legendFormat": "{{ horizontalpodautoscaler }} — HPA current",
+          "legendFormat": "{{ horizontalpodautoscaler }} \u2014 HPA current",
           "refId": "C"
         },
         {
           "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"moodle\"}",
-          "legendFormat": "{{ horizontalpodautoscaler }} — HPA min",
+          "legendFormat": "{{ horizontalpodautoscaler }} \u2014 HPA min",
           "refId": "D"
         },
         {
           "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"moodle\"}",
-          "legendFormat": "{{ horizontalpodautoscaler }} — HPA max",
+          "legendFormat": "{{ horizontalpodautoscaler }} \u2014 HPA max",
           "refId": "E"
         }
       ],
@@ -306,14 +139,14 @@
       }
     },
     {
-      "id": 12,
+      "id": 5,
       "title": "Pod Restarts",
       "type": "stat",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 22
+        "y": 9
       },
       "targets": [
         {
@@ -344,25 +177,25 @@
       }
     },
     {
-      "id": 13,
+      "id": 6,
       "type": "row",
       "title": "CronJob, network & Redis pods",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 17
       }
     },
     {
-      "id": 14,
-      "title": "CronJob — Succeeded / Failed",
+      "id": 7,
+      "title": "CronJob \u2014 Succeeded / Failed",
       "type": "timeseries",
       "gridPos": {
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 18
       },
       "targets": [
         {
@@ -390,24 +223,24 @@
       }
     },
     {
-      "id": 15,
+      "id": 8,
       "title": "Network I/O (Receive)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 22
       },
       "targets": [
         {
           "expr": "sum(rate(container_network_receive_bytes_total{namespace=\"moodle\"}[5m])) by (pod)",
-          "legendFormat": "{{ pod }} — receive",
+          "legendFormat": "{{ pod }} \u2014 receive",
           "refId": "A"
         },
         {
           "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"moodle\"}[5m])) by (pod)",
-          "legendFormat": "{{ pod }} — transmit",
+          "legendFormat": "{{ pod }} \u2014 transmit",
           "refId": "B"
         }
       ],
@@ -425,14 +258,14 @@
       }
     },
     {
-      "id": 16,
+      "id": 9,
       "title": "Redis Pod CPU Usage",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 30
       },
       "targets": [
         {
@@ -455,14 +288,14 @@
       }
     },
     {
-      "id": 17,
+      "id": 10,
       "title": "Redis Pod Memory Usage",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 30
       },
       "targets": [
         {
@@ -485,25 +318,25 @@
       }
     },
     {
-      "id": 18,
+      "id": 11,
       "type": "row",
       "title": "CPU vs limits & throttling",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 38
       }
     },
     {
-      "id": 19,
+      "id": 12,
       "title": "Moodle pod CPU vs limit",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 52
+        "y": 39
       },
       "targets": [
         {
@@ -542,19 +375,19 @@
       }
     },
     {
-      "id": 20,
+      "id": 13,
       "title": "Moodle pod CPU throttling",
       "type": "timeseries",
       "gridPos": {
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 39
       },
       "targets": [
         {
           "expr": "sum(rate(container_cpu_cfs_throttled_periods_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod) / clamp_min(sum(rate(container_cpu_cfs_periods_total{namespace=\"moodle\",container=\"moodle\"}[5m])) by (pod), 1)",
-          "legendFormat": "{{ pod }} — throttled ratio",
+          "legendFormat": "{{ pod }} \u2014 throttled ratio",
           "refId": "A"
         }
       ],
@@ -585,12 +418,200 @@
           }
         }
       }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Cluster / nodes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "id": 15,
+      "title": "Node CPU Utilization",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "targets": [
+        {
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) by (instance)",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Node Memory Utilization",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "targets": [
+        {
+          "expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Node Disk Usage",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "1 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"})",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Pods per Node",
+      "type": "bargauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      },
+      "targets": [
+        {
+          "expr": "count(kube_pod_info) by (node)",
+          "legendFormat": "{{ node }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        }
+      }
     }
   ],
   "annotations": {},
   "editable": true,
   "gnetId": null,
-  "uid": null,
+  "uid": "moodle-workload-autoscale-cluster",
   "links": [],
   "schemaVersion": 39,
   "version": 1
