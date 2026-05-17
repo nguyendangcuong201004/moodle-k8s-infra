@@ -1,7 +1,7 @@
 # HCMUT Moodle LMS - Default Helm Values
 # Override per cloud via setup.sh --set flags or custom values files.
 
-replicaCount: 6
+replicaCount: 3
 
 image:
   repository: ndcuongdevops/moodle-lms
@@ -46,7 +46,7 @@ db:
 # PgBouncer sidecar in each web pod: app -> localhost:6432 -> primary Postgres
 # When using DO managed pool (pgbouncer.enabled=false), pool size is set in Terraform (default 85).
 # With read replica + readReplica.enabled: Moodle readonly -> localhost:6433 -> standby (second sidecar).
-# Keep replicaCount × defaultPoolSize under each node's connection limit (e.g. db-s-2vcpu-4gb ≈ 97: 6×13=78 per primary and per standby when read replica sidecar is on).
+# Keep replicaCount × defaultPoolSize under each node's connection limit (e.g. db-s-2vcpu-4gb ≈ 97: 3×13=39 per primary and per standby when read replica sidecar is on).
 pgbouncer:
   enabled: true
   image: edoburu/pgbouncer:latest
@@ -104,6 +104,13 @@ service:
   type: ClusterIP
   port: 80
   annotations: {}
+  sessionAffinity: None
+  sessionAffinityConfig: {}
+  # For a controlled sticky-routing test on LoadBalancer/NodePort:
+  # sessionAffinity: ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
 
 # Ingress configuration (disable for LoadBalancer-based setups)
 ingress:
@@ -122,13 +129,13 @@ resources:
     cpu: 1000m
     memory: 1536Mi
   limits:
-    cpu: 2500m
+    cpu: 3000m
     memory: 4Gi
 
 autoscaling:
   enabled: false
-  minReplicas: 6
-  maxReplicas: 6
+  minReplicas: 3
+  maxReplicas: 3
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
   # Custom metrics via Prometheus (requires prometheus-adapter)

@@ -52,6 +52,7 @@ spec:
                   $CFG->prefix    = 'mdl_';
                   $CFG->wwwroot   = getenv('MOODLE_WWWROOT');
                   $CFG->dataroot  = '/var/www/moodledata';
+                  $CFG->localcachedir = '/tmp/moodlelocalcache';
                   $CFG->directorypermissions = 0777;
                   $CFG->sslproxy        = (getenv('MOODLE_SSL_PROXY') === 'true');
                   $CFG->reverseproxy    = (getenv('MOODLE_REVERSE_PROXY') === 'true');

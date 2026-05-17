@@ -59,10 +59,12 @@ flowchart TB
 
 Terraform variable [`db_node_count`](digitalocean/variables.tf) defaults to **2** (primary + hot standby with streaming replication on DigitalOcean Managed Postgres). Use the same `db_size` for both nodes (symmetric tier, for example `db-s-2vcpu-4gb` or a larger plan if you need more RAM for `shared_buffers`).
 
-For Moodle to send **SELECT** traffic to the standby while keeping writes on the primary:
+For Moodle to send **SELECT** traffic to the standby while keeping writes on the primary, opt in explicitly:
 
 - Set `MOODLE_ENABLE_READ_SPLIT=true` and `MOODLE_USE_MANAGED_POOL=false` in `.env` (see [`.env.example`](.env.example)). The managed DO connection pool and the current read-split wiring in [`lib/helpers.sh`](digitalocean/lib/helpers.sh) / [`lib/steps.sh`](digitalocean/lib/steps.sh) are mutually exclusive.
 - After apply, `setup.sh` discovers the standby hostname from the DO API (`standby_connection.host`), passes it to Helm as `db.readonlyHosts[0]`, and enables a **second PgBouncer sidecar** on port **6433** so readonly queries are pooled to the replica (primary stays on **6432**).
+
+Keep read split disabled for quiz/exam stress tests. Moodle creates an attempt and immediately reads it back; a lagging standby can return stale data and make a real submission flow fail even when the primary write succeeded.
 
 **Observability:** scrape `pg_stat_replication` on the primary (e.g. from `psql` or any Postgres client) to inspect standby `replay_lag`. The web PodMonitor includes a second target **`pgb-ro-metrics`** (port 9128) when the read sidecar is active—use it with Grafana for pool wait vs the primary PgBouncer metrics. When a standby host is configured, `step_postgres_exporter` also deploys **`postgres-exporter-standby`** (ServiceMonitor on port 9188) so Prometheus can scrape replica-side stats (e.g. WAL receiver, connection load).
 
@@ -90,8 +92,8 @@ MOODLE_STAGING_WWWROOT=https://staging-lms.example.com
 # Optional: Cloudflare token for ExternalDNS
 # CF_API_TOKEN=...
 
-# Read replica (2-node DB): see "PostgreSQL: two-node cluster" above
-MOODLE_ENABLE_READ_SPLIT=true
+# Read replica (2-node DB): keep false for quiz/exam stress tests
+MOODLE_ENABLE_READ_SPLIT=false
 MOODLE_USE_MANAGED_POOL=false
 ```
 
@@ -150,7 +152,7 @@ cd stress-test
 4. Run:
 
 ```bash
-./run-stress-test.sh
+./0_stress_testing.sh
 ```
 
 Details: [stress-test/README.md](stress-test/README.md).

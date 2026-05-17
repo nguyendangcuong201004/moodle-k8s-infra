@@ -11,7 +11,7 @@ cd moodle-k8s-infra/stress-test
 ./seed-auth-quiz-data.sh
 ```
 
-Common env overrides: `NAMESPACE`, `USER_PREFIX`, `USER_COUNT` (default **500** students), `TEACHER_COUNT` (default **100**), `USER_PASSWORD`, `COURSE_SHORTNAME`, `COURSE_FULLNAME`, `QUIZ_NAME`. The script prints **`COURSE_ID`**, **`QUIZ_CMID`**, and a sample `run-stress-test` line. Re-run seed after raising counts so new accounts exist in Moodle.
+Common env overrides: `NAMESPACE`, `USER_PREFIX`, `USER_COUNT` (default **500** students), `TEACHER_COUNT` (default **100**), `USER_PASSWORD`, `COURSE_SHORTNAME`, `COURSE_FULLNAME`, `QUIZ_NAME`. The script prints **`COURSE_ID`**, **`QUIZ_CMID`**, and a sample `0_stress_testing` line. Re-run seed after raising counts so new accounts exist in Moodle.
 
 Set in **`stress-params.env`** (or export):
 
@@ -23,11 +23,16 @@ Set in **`stress-params.env`** (or export):
 ## 2. Run
 
 ```bash
-# edit stress-params.env: paths, VUs, thresholds
-./run-stress-test.sh
+# stress test: staircase to find the breaking point
+./0_stress_testing.sh
+
+# load test: stable load around the expected operating threshold
+./1_loadtesting.sh
 ```
 
-Logs: `results/run-*.log`. With `PROFILE=auth_quiz`, the scenario is: home → login → course → quiz → attempt → **POST** `processattempt` → summary → quiz (see `k6-moodle.js`).
+Both wrappers use `_run_k6_common.sh` for env loading, k6 execution, summary parsing, and artifact paths. Terminal output is intentionally short; full k6 output is saved in `results/run-*.log`.
+
+With `PROFILE=auth_quiz`, the scenario is: home → login → course → quiz → attempt → **POST** `processattempt` → summary → quiz (see `k6-moodle.js`).
 
 ## 3. Tweaks
 

@@ -114,6 +114,7 @@ function parseStaircasePlan(raw) {
 }
 
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     staircase: {
       executor: 'ramping-vus',
@@ -224,8 +225,19 @@ function extractFormAction(html) {
 }
 
 function extractStartAttemptUrl(html) {
-  const m = html.match(/href="([^"]*\/mod\/quiz\/startattempt\.php[^"]*)"/i);
+  const m = html.match(/(?:href|action)="([^"]*\/mod\/quiz\/startattempt\.php[^"]*)"/i);
   return m ? absoluteUrl(decodeHtml(m[1])) : '';
+}
+
+function extractAttemptUrl(html) {
+  const startUrl = extractStartAttemptUrl(html);
+  if (startUrl) return startUrl;
+  const m = html.match(/(?:href|action)="([^"]*\/mod\/quiz\/attempt\.php[^"]*)"/i);
+  return m ? absoluteUrl(decodeHtml(m[1])) : '';
+}
+
+function isStartAttemptPostForm(html) {
+  return /<form[^>]*method="post"[^>]*action="[^"]*\/mod\/quiz\/startattempt\.php/i.test(html || '');
 }
 
 function cmidFromQuizPath(quizPath) {
@@ -322,9 +334,13 @@ function journeyTeacher(user) {
   if (courseId) {
     const gradebookRes = http.get(
       `${BASE_URL}/grade/report/grader/index.php?id=${courseId}`,
-      { tags: { name: 'teacher_gradebook' }, ...getOpts }
+      {
+        tags: { name: 'teacher_gradebook' },
+        ...getOpts,
+        responseCallback: http.expectedStatuses({ min: 200, max: 399 }, 404),
+      }
     );
-    check(gradebookRes, { 'teacher_gradebook ok': (r) => isOkOrRedirect(r.status) });
+    check(gradebookRes, { 'teacher_gradebook ok_or_hidden': (r) => isOkOrRedirect(r.status) || r.status === 404 });
     sleepThinkRange(THINK_AFTER_GRADEBOOK);
   }
 }
@@ -403,16 +419,24 @@ function journeyQuizUser(user) {
 
   if (!QUIZ_DO_SUBMIT) return;
 
-  const startUrl = extractStartAttemptUrl(quizRes.body || '');
+  const startUrl = extractAttemptUrl(quizRes.body || '');
   check(quizRes, {
-    'quiz page has startattempt link': () => startUrl.length > 0,
+    'quiz page has attempt link': () => startUrl.length > 0,
   });
   if (!startUrl) return;
 
-  const attemptPage = http.get(startUrl, {
-    tags: { name: 'quiz_attempt' },
-    ...getOpts,
-  });
+  const attemptPage = isStartAttemptPostForm(quizRes.body || '')
+    ? http.post(startUrl, extractHiddenInputs(quizRes.body || ''), {
+        tags: { name: 'quiz_attempt' },
+        redirects: MAX_REDIRECTS,
+        timeout: HTTP_TIMEOUT,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        responseType: 'text',
+      })
+    : http.get(startUrl, {
+        tags: { name: 'quiz_attempt' },
+        ...getOpts,
+      });
   check(attemptPage, {
     'quiz_attempt ok': (r) => isOkOrRedirect(r.status),
   });

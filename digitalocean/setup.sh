@@ -23,10 +23,12 @@ step_external_dns
 step_db_grant
 step_wait_pods
 step_install
-step_moodle_muc_cache_setup
 step_configure_moodle
+step_moodle_muc_cache_setup
+kubectl -n "${MOODLE_NAMESPACE}" rollout restart "deployment/${MOODLE_RELEASE_NAME}"
+kubectl -n "${MOODLE_NAMESPACE}" rollout status "deployment/${MOODLE_RELEASE_NAME}" --timeout=300s
 step_postgres_exporter
-step_k6_synthetic_probe
+step_remove_k6_synthetic_probe
 
 echo ""
 echo "=== Done [${WORKSPACE}] ==="

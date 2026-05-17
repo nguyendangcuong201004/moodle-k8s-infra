@@ -48,6 +48,7 @@ data:
     $CFG->prefix = 'mdl_';
     $CFG->wwwroot = getenv('MOODLE_WWWROOT');
     $CFG->dataroot = '/var/www/moodledata';
+    $CFG->localcachedir = '/tmp/moodlelocalcache';
     $CFG->directorypermissions = 0777;
     $CFG->sslproxy = (getenv('MOODLE_SSL_PROXY') === 'true');
     $CFG->dboptions = ['dbport' => getenv('MOODLE_DB_PORT') ?: '5432'];
@@ -163,6 +164,11 @@ data:
         // Goal: APCu (in-process, ~0.001ms) is L1; Redis (network, ~0.5-1ms) is L2.
         // Reads hit APCu first; on miss they fall through to Redis and re-populate APCu.
         //
+        // Do not map Moodle MUC session-mode caches to redis_app_shared. PHP sessions
+        // already use the dedicated moodle-redis-session service via $CFG->session_*.
+        // Keeping MUC session-mode on default_session makes redis-cache metrics represent
+        // only the shared application L2 cache, while redis-session metrics represent sessions.
+        //
         // IMPORTANT — counter-intuitive write order:
         //   * cache_config_writer::set_mode_mappings() assigns sort=0,1,2,... in INPUT order.
         //   * cache_config::load() then sorts by 'sort' DESC (see config::sort_mappings).
@@ -197,7 +203,7 @@ data:
             }
         }
 
-        $desiredSession = array_key_exists($redisStoreName, $stores) ? [$redisStoreName] : [];
+        $desiredSession = array_key_exists('default_session', $stores) ? ['default_session'] : [];
 
         // get_mode_mappings() returns rows in sort-DESC order, so $currentApp here
         // is already the runtime L1→L2 sequence — directly comparable to $desiredTierOrder.
