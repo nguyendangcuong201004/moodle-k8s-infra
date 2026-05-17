@@ -28,6 +28,9 @@ Set in **`stress-params.env`** (or export):
 
 # load test: stable load around the expected operating threshold
 ./1_loadtesting.sh
+
+# burst test: sudden spike, then recovery window
+./2_burst_testing.sh
 ```
 
 Both wrappers use `_run_k6_common.sh` for env loading, k6 execution, summary parsing, and artifact paths. Terminal output is intentionally short; full k6 output is saved in `results/run-*.log`.
@@ -39,9 +42,17 @@ With `PROFILE=auth_quiz`, the scenario is: home → login → course → quiz �
 | Variable | Role |
 |----------|------|
 | `STAIRCASE_PLAN_PRESET` | Stair stages (`duration:vus,...`) |
+| `BASELINE_VUS`, `BURST_VUS` | Burst wrapper baseline and spike size |
+| `WARMUP_DURATION`, `BURST_RAMP_DURATION`, `BURST_HOLD_DURATION`, `RECOVERY_DURATION` | Burst shape and recovery window |
 | `MAX_P95_MS`, `MAX_P99_MS`, `MAX_FAIL_RATE` | Abort thresholds (k6 `http_req_duration` + `http_req_failed`) |
 | `THINK_*` | Pause between steps |
 
 Other profiles: `PROFILE=mixed|home|login` (GET-heavy only).
+
+Example burst override:
+
+```bash
+BURST_VUS=800 BURST_RAMP_DURATION=3s BURST_HOLD_DURATION=90s ./2_burst_testing.sh
+```
 
 Deploy stack first: [../README.md](../README.md) (DigitalOcean).

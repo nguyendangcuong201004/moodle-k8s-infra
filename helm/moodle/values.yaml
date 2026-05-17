@@ -46,8 +46,8 @@ db:
 # PgBouncer sidecar in each web pod: app -> localhost:6432 -> primary Postgres
 # When using DO managed pool (pgbouncer.enabled=false), pool size is set in Terraform (default 85).
 # With read replica + readReplica.enabled: Moodle readonly -> localhost:6433 -> standby (second sidecar).
-# Keep replicaCount × (defaultPoolSize + reservePoolSize) under the DB connection budget.
-# The DigitalOcean setup defaults to 3 × (28 + 0) = 84 app server connections.
+# Keep maxReplicas × (defaultPoolSize + reservePoolSize) under the DB connection budget.
+# The DigitalOcean setup defaults to 6 × (14 + 0) = 84 app server connections.
 pgbouncer:
   enabled: true
   image: edoburu/pgbouncer:latest
@@ -56,7 +56,7 @@ pgbouncer:
   authType: scram-sha-256
   poolMode: session
   maxClientConn: 1200
-  defaultPoolSize: 28
+  defaultPoolSize: 14
   reservePoolSize: 0
   reservePoolTimeoutSeconds: 3
   serverIdleTimeoutSeconds: 30
@@ -75,7 +75,7 @@ pgbouncer:
     listenPort: 6433
     poolMode: session
     maxClientConn: 1200
-    defaultPoolSize: 28
+    defaultPoolSize: 14
     reservePoolSize: 0
     reservePoolTimeoutSeconds: 3
     serverIdleTimeoutSeconds: 30
@@ -142,9 +142,9 @@ resources:
     memory: 4Gi
 
 autoscaling:
-  enabled: false
+  enabled: true
   minReplicas: 3
-  maxReplicas: 3
+  maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
   # Custom metrics via Prometheus (requires prometheus-adapter)

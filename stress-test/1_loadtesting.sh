@@ -7,7 +7,7 @@ export TEST_NAME="${TEST_NAME:-load}"
 
 # Load test for the proposed Cloudflare Waiting Room threshold.
 # Ramp gradually to avoid measuring a burst spike, then hold 150 VUs for 5 minutes.
-export STAIRCASE_PLAN_PRESET="${STAIRCASE_PLAN_PRESET:-2m:150,5m:180}"
+export STAIRCASE_PLAN_PRESET="${STAIRCASE_PLAN_PRESET:-2m:150,5m:150}"
 export START_VUS="${START_VUS:-150}"
 export STEP_VUS="${STEP_VUS:-150}"
 export MAX_VUS="${MAX_VUS:-150}"

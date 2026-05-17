@@ -1,7 +1,7 @@
 variable "enable_node_autoscale" {
   description = "Enable node pool autoscaling"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "node_pool_min_nodes" {
@@ -13,5 +13,5 @@ variable "node_pool_min_nodes" {
 variable "node_pool_max_nodes" {
   description = "Max nodes when autoscale enabled"
   type        = number
-  default     = 3
+  default     = 6
 }

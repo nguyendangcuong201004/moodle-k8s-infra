@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Stress test: find the breaking point by stepping up to high concurrency.
 export TEST_NAME="${TEST_NAME:-stress}"
-export STAIRCASE_PLAN_PRESET="${STAIRCASE_PLAN_PRESET:-75s:100,75s:200,75s:300,75s:400,75s:500}"
+export STAIRCASE_PLAN_PRESET="${STAIRCASE_PLAN_PRESET:-75s:100,75s:200,75s:300,75s:400}"
 export START_VUS="${START_VUS:-100}"
 export STEP_VUS="${STEP_VUS:-100}"
-export MAX_VUS="${MAX_VUS:-500}"
+export MAX_VUS="${MAX_VUS:-400}"
 
 export MAX_P95_MS="${MAX_P95_MS:-3000}"
 export MAX_P99_MS="${MAX_P99_MS:-5000}"

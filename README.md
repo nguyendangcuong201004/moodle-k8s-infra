@@ -49,7 +49,7 @@ flowchart TB
 | Area | Technology |
 |------|------------|
 | Edge | DO Load Balancer in front of **F5/NGINX Ingress Controller**. Moodle is exposed by Ingress using `nginx.org/lb-method: least_conn`; the Moodle `Service` stays `ClusterIP`. Optional **ExternalDNS** + **Cloudflare** for automatic DNS. |
-| App | **Nginx** → **PHP-FPM** (Moodle), **OpCache** tuned in the image. Fixed replica count in chart (`replicaCount` / no HPA in current defaults). |
+| App | **Nginx** → **PHP-FPM** (Moodle), **OpCache** tuned in the image. HPA scales Moodle web pods from 3 to 6 by default. |
 | DB | **Managed PostgreSQL** in the same region/VPC. App talks through **PgBouncer** in the pod, or a **DO connection pool** if you enable it in Terraform (`MOODLE_USE_MANAGED_POOL=true`). |
 | Caching | Two **Redis** instances in the cluster: **session** store and **MUC** (application cache) for Moodle; wired via chart + post-install PHP in `setup.sh`. |
 | Files | **Longhorn** `ReadWriteMany` PVC for `/var/www/moodledata`. |
