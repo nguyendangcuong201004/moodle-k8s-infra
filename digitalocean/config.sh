@@ -42,9 +42,10 @@ MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-false}"
 # PgBouncer sidecar when not using managed pool
 PGBOUNCER_POOL_MODE="${PGBOUNCER_POOL_MODE:-session}"
 PGBOUNCER_AUTH_TYPE="${PGBOUNCER_AUTH_TYPE:-scram-sha-256}"
-# Per-pod upstream limit; ~floor(85/replicaCount) for 97-conn tier when using sidecar (not managed pool).
-PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-13}"
-PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-5}"
+# Per-pod upstream limit; default production target uses the full 84-connection app pool:
+# 3 web pods × 28 server connections = 84. Keep reserve at 0 so PgBouncer cannot exceed that budget.
+PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-28}"
+PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-0}"
 PGBOUNCER_MAX_CLIENT_CONN="${PGBOUNCER_MAX_CLIENT_CONN:-2000}"
 
 # Grafana Cloud (optional)

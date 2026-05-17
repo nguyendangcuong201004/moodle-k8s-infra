@@ -1,6 +1,7 @@
 {{- if and .Values.redis.enabled .Values.redis.cache.enabled .Values.cacheSetup.enabled }}
 # ---------------------------------------------------------------------------
-# ConfigMap: PHP script that wires Moodle MUC (APCu L1 + Redis L2, session → Redis).
+# ConfigMap: PHP script that wires Moodle MUC for a multi-pod cluster:
+# shared application caches → Redis, selected local-safe hot caches → APCu.
 # Kept as a normal release object (not a Helm hook). Moodle is installed by
 # digitalocean/setup.sh *after* the first helm apply, so the script must run
 # from a web pod once the DB has dbversion — see step_moodle_muc_cache_setup.
@@ -16,13 +17,10 @@ data:
   setup-cache.php: |
     <?php
     /**
-     * Auto-configure Moodle MUC to use a 2-tier cache:
-     *   L1 = APCu (in-process, per-pod, ~0.001ms)
-     *   L2 = Redis (network, shared across pods, ~0.5-1ms RTT)
-     *
-     * Application-mode reads hit APCu first; on miss they fall through to
-     * Redis and are populated back into APCu. This dramatically cuts Redis
-     * RPS for hot-static keys (lang strings, config, plugintypes, capabilities).
+     * Auto-configure Moodle MUC for Kubernetes:
+     *   - Default application caches use Redis only, so all web pods see the
+     *     same shared data and invalidations.
+     *   - APCu is kept only for explicitly selected local-safe definitions.
      *
      * Idempotent - safe to run on every deploy.
      */
@@ -159,34 +157,16 @@ data:
         // Refresh stores list after possible add_store_instance calls
         $stores = $writer->get_all_stores();
 
-        // --- 3. Mode mapping for APPLICATION + SESSION ---
+        // --- 3. Mode mapping for APPLICATION + SESSION + REQUEST ---
         //
-        // Goal: APCu (in-process, ~0.001ms) is L1; Redis (network, ~0.5-1ms) is L2.
-        // Reads hit APCu first; on miss they fall through to Redis and re-populate APCu.
-        //
-        // Do not map Moodle MUC session-mode caches to redis_app_shared. PHP sessions
-        // already use the dedicated moodle-redis-session service via $CFG->session_*.
-        // Keeping MUC session-mode on default_session makes redis-cache metrics represent
-        // only the shared application L2 cache, while redis-session metrics represent sessions.
-        //
-        // IMPORTANT — counter-intuitive write order:
-        //   * cache_config_writer::set_mode_mappings() assigns sort=0,1,2,... in INPUT order.
-        //   * cache_config::load() then sorts by 'sort' DESC (see config::sort_mappings).
-        //   * cache_factory::create_cache() builds the loader chain via array_pop(),
-        //     wrapping the LAST popped store as the OUTERMOST (= L1, checked first).
-        //
-        //   Net effect: the LAST entry in our INPUT array becomes the runtime L1.
-        //   So we must pass [redis, apcu] (Redis first, APCu last) to make APCu the L1.
-        //   $desiredTierOrder represents the LOGICAL L1→L2 order for comparison/logging;
-        //   $writeOrder is what we actually pass to set_mode_mappings().
-        $desiredTierOrder = [];
-        if (array_key_exists($apcuStoreName, $stores)) {
-            $desiredTierOrder[] = $apcuStoreName;   // L1 — in-process APCu
+        // In a multi-pod Moodle deployment, a local APCu default for Application
+        // mode can make pods observe stale per-pod values for definitions that
+        // Moodle marks as "Can use local store: No". Keep the default shared.
+        $desiredApplication = array_key_exists($redisStoreName, $stores) ? [$redisStoreName] : [];
+        if (empty($desiredApplication)) {
+            echo "[cache-setup] Redis store '$redisStoreName' is missing. Cannot map application caches.\n";
+            exit(1);
         }
-        if (array_key_exists($redisStoreName, $stores)) {
-            $desiredTierOrder[] = $redisStoreName;  // L2 — shared Redis
-        }
-        $writeOrder = array_reverse($desiredTierOrder);
 
         $mappings    = $writer->get_mode_mappings();
         $currentApp  = [];
@@ -204,35 +184,73 @@ data:
         }
 
         $desiredSession = array_key_exists('default_session', $stores) ? ['default_session'] : [];
+        $desiredRequest = array_key_exists('default_request', $stores) ? ['default_request'] : [];
 
-        // get_mode_mappings() returns rows in sort-DESC order, so $currentApp here
-        // is already the runtime L1→L2 sequence — directly comparable to $desiredTierOrder.
-        if ($currentApp !== $desiredTierOrder || $currentSession !== $desiredSession) {
-            echo "[cache-setup] Mapping application-mode cache → " . implode(' (L1) → ', $desiredTierOrder) . " (L2) ...\n";
-            echo "[cache-setup] Mapping session-mode cache → " . implode(' + ', $desiredSession) . " ...\n";
-            // Preserve non-application/session modes and overwrite those two only.
-            $newMappings = [
-                cache_store::MODE_APPLICATION => $writeOrder,    // see comment above re: reversed input
-                cache_store::MODE_SESSION => $desiredSession,
-            ];
-            foreach ($mappings as $m) {
-                $mode = (int)$m['mode'];
-                if ($mode === cache_store::MODE_APPLICATION || $mode === cache_store::MODE_SESSION) {
-                    continue;
-                }
-                if (!array_key_exists($mode, $newMappings)) {
-                    $newMappings[$mode] = [];
-                }
-                $newMappings[$mode][] = $m['store'];
+        $currentRequest = [];
+        foreach ($mappings as $m) {
+            if ((int)$m['mode'] === cache_store::MODE_REQUEST) {
+                $currentRequest[] = $m['store'];
             }
+        }
+
+        if ($currentApp !== $desiredApplication || $currentSession !== $desiredSession || $currentRequest !== $desiredRequest) {
+            echo "[cache-setup] Mapping application-mode cache → " . implode(' + ', $desiredApplication) . " ...\n";
+            echo "[cache-setup] Mapping session-mode cache → " . implode(' + ', $desiredSession) . " ...\n";
+            echo "[cache-setup] Mapping request-mode cache → " . implode(' + ', $desiredRequest) . " ...\n";
+            $newMappings = [
+                cache_store::MODE_APPLICATION => $desiredApplication,
+                cache_store::MODE_SESSION => $desiredSession,
+                cache_store::MODE_REQUEST => $desiredRequest,
+            ];
             $writer->set_mode_mappings($newMappings);
             $changed = true;
-
-            // Purge so caches rebuild into the new tier order.
-            cache_helper::purge_all(false);
-            echo "[cache-setup] Application/session mappings updated and caches purged.\n";
         } else {
-            echo "[cache-setup] Application/session mappings already correct.\n";
+            echo "[cache-setup] Mode mappings already correct.\n";
+        }
+
+        // --- 4. Definition-specific APCu mappings for local-safe hot caches ---
+        //
+        // Keep this list deliberately small. These definitions are explicitly
+        // local-store capable and are hot on almost every page, while changing
+        // rarely compared with quiz/progress/course state.
+        $localDefinitions = [
+            'core/string',
+            'core/langmenu',
+        ];
+        $definitionMappings = $writer->get_definition_mappings();
+        $currentByDefinition = [];
+        foreach ($definitionMappings as $mapping) {
+            $currentByDefinition[$mapping['definition']][] = $mapping['store'];
+        }
+
+        foreach ($localDefinitions as $definitionId) {
+            $definition = $writer->get_definition_by_id($definitionId);
+            if (!$definition) {
+                echo "[cache-setup] Definition '$definitionId' not found; skipping APCu mapping.\n";
+                continue;
+            }
+            if (empty($definition['canuselocalstore'])) {
+                echo "[cache-setup] Definition '$definitionId' is not local-store capable; skipping APCu mapping.\n";
+                continue;
+            }
+            if (!array_key_exists($apcuStoreName, $stores)) {
+                echo "[cache-setup] APCu store '$apcuStoreName' is missing; cannot map '$definitionId'.\n";
+                continue;
+            }
+            $current = $currentByDefinition[$definitionId] ?? [];
+            $desired = [$apcuStoreName];
+            if ($current !== $desired) {
+                echo "[cache-setup] Mapping definition '$definitionId' → $apcuStoreName ...\n";
+                $writer->set_definition_mappings($definitionId, $desired);
+                $changed = true;
+            } else {
+                echo "[cache-setup] Definition '$definitionId' mapping already correct.\n";
+            }
+        }
+
+        if ($changed) {
+            cache_helper::purge_all(false);
+            echo "[cache-setup] Cache mappings updated and caches purged.\n";
         }
 
         echo "[cache-setup] Done." . ($changed ? " (changes applied)" : " (no-op)") . "\n";

@@ -16,6 +16,7 @@ step_longhorn
 step_metrics_server
 step_prometheus
 step_grafana_dashboards
+step_ingress_nginx
 
 step_helm_deploy
 step_external_dns
@@ -33,9 +34,9 @@ step_remove_k6_synthetic_probe
 echo ""
 echo "=== Done [${WORKSPACE}] ==="
 echo "  Site : ${SITE_URL}"
-LB_IP=$(kubectl -n "${MOODLE_NAMESPACE}" get svc moodle \
+LB_IP=$(kubectl -n ingress-nginx get svc nginx-ingress-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-LB_HOST=$(kubectl -n "${MOODLE_NAMESPACE}" get svc moodle \
+LB_HOST=$(kubectl -n ingress-nginx get svc nginx-ingress-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
 [[ -n "${LB_IP}"   ]] && echo "  DNS  : A     ${EXTERNAL_DNS_HOSTNAME} → ${LB_IP}"
 [[ -n "${LB_HOST}" ]] && echo "  DNS  : CNAME ${EXTERNAL_DNS_HOSTNAME} → ${LB_HOST}"

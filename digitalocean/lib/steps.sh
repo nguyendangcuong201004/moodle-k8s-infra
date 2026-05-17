@@ -249,6 +249,37 @@ step_grafana_dashboards() {
   fi
 }
 
+step_ingress_nginx() {
+  echo "=== Ingress Nginx ==="
+  # Use F5/NGINX Ingress Controller here because the community ingress-nginx
+  # controller does not support the NGINX least_conn upstream method.
+  local uninstall_output
+  if ! uninstall_output=$(_helm -n ingress-nginx uninstall ingress-nginx 2>&1); then
+    case "${uninstall_output}" in
+      *"Release not loaded"*|*"release: not found"*)
+        ;;
+      *)
+        printf '%s\n' "${uninstall_output}" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
+    --namespace ingress-nginx --create-namespace \
+    --set controller.kind=daemonset \
+    --set controller.service.type=LoadBalancer \
+    --set controller.service.externalTrafficPolicy=Local \
+    --set "controller.service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}-ingress" \
+    --set "controller.service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-type=REGIONAL_NETWORK" \
+    --set-string controller.config.entries.lb-method=least_conn \
+    --set-string controller.config.entries.keepalive=16 \
+    --set-string controller.config.entries.keepalive-requests=100 \
+    --set-string controller.config.entries.keepalive-timeout=30s \
+    --set controller.prometheus.create=true \
+    --wait --timeout 5m
+}
+
 # Step 4: Helm
 step_helm_deploy() {
   echo "=== Helm deploy Moodle ==="
@@ -274,10 +305,16 @@ step_helm_deploy() {
     --set db.password="${DB_APP_PASS}" --set db.sslmode=require \
     --set moodle.wwwroot="${SITE_URL}" \
     --set persistence.storageClass=longhorn \
-    --set service.type=LoadBalancer \
-    --set ingress.enabled=false \
-    --set "service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}" \
-    --set "service.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
+    --set service.type=ClusterIP \
+    --set ingress.enabled=true \
+    --set ingress.className=nginx \
+    --set ingress.host="${EXTERNAL_DNS_HOSTNAME}" \
+    --set-string "ingress.annotations.nginx\.org/lb-method=least_conn" \
+    --set-string "ingress.annotations.nginx\.org/client-max-body-size=100m" \
+    --set-string "ingress.annotations.nginx\.org/proxy-read-timeout=300s" \
+    --set-string "ingress.annotations.nginx\.org/proxy-send-timeout=300s" \
+    --set-string "ingress.annotations.nginx\.org/proxy-next-upstream-tries=1" \
+    --set "ingress.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
     "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}"
 }
 

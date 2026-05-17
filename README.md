@@ -9,8 +9,9 @@ Other folders (`aws/`, `azure/`) are optional paths; this document describes **o
 ```mermaid
 flowchart TB
   U[Users] --> DNS[DNS - optional Cloudflare + ExternalDNS]
-  DNS --> LB[DO Network Load Balancer :443 / TCP]
-  LB --> SVC[Moodle Service - LoadBalancer]
+  DNS --> LB[DO Network Load Balancer]
+  LB --> IC[Nginx Ingress Controller - least_conn]
+  IC --> SVC[Moodle Service - ClusterIP]
 
   subgraph DOKS[DigitalOcean Kubernetes - DOKS]
     subgraph WebPod[Web pod - role=web]
@@ -47,7 +48,7 @@ flowchart TB
 
 | Area | Technology |
 |------|------------|
-| Edge | DO Load Balancer in front of the Moodle `Service` (type `LoadBalancer` from setup). Optional **ExternalDNS** + **Cloudflare** for automatic DNS. |
+| Edge | DO Load Balancer in front of **F5/NGINX Ingress Controller**. Moodle is exposed by Ingress using `nginx.org/lb-method: least_conn`; the Moodle `Service` stays `ClusterIP`. Optional **ExternalDNS** + **Cloudflare** for automatic DNS. |
 | App | **Nginx** → **PHP-FPM** (Moodle), **OpCache** tuned in the image. Fixed replica count in chart (`replicaCount` / no HPA in current defaults). |
 | DB | **Managed PostgreSQL** in the same region/VPC. App talks through **PgBouncer** in the pod, or a **DO connection pool** if you enable it in Terraform (`MOODLE_USE_MANAGED_POOL=true`). |
 | Caching | Two **Redis** instances in the cluster: **session** store and **MUC** (application cache) for Moodle; wired via chart + post-install PHP in `setup.sh`. |
