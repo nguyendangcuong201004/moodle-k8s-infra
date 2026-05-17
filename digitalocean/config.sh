@@ -89,6 +89,17 @@ if [[ "${WORKSPACE}" == "staging" ]]; then
   STAGING_PGBOUNCER_MEMORY_REQUEST="${STAGING_PGBOUNCER_MEMORY_REQUEST:-96Mi}"
 fi
 
+# Workspace-level observability defaults:
+# - staging: skip Prometheus/Grafana/postgres-exporter by default
+# - production: keep observability stack enabled
+if [[ "${WORKSPACE}" == "staging" ]]; then
+  ENABLE_OBSERVABILITY_STACK="${STAGING_ENABLE_OBSERVABILITY_STACK:-false}"
+  ENABLE_K6_SYNTHETIC_CLEANUP="${STAGING_ENABLE_K6_SYNTHETIC_CLEANUP:-true}"
+else
+  ENABLE_OBSERVABILITY_STACK="${PRODUCTION_ENABLE_OBSERVABILITY_STACK:-true}"
+  ENABLE_K6_SYNTHETIC_CLEANUP="${PRODUCTION_ENABLE_K6_SYNTHETIC_CLEANUP:-false}"
+fi
+
 # Timing
 STEP4_MAX_WAIT_SEC="${MOODLE_STEP4_MAX_WAIT_SEC:-1800}"
 STEP4_POLL_SEC="${MOODLE_STEP4_POLL_SEC:-10}"

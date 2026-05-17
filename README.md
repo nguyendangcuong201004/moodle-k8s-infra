@@ -111,6 +111,18 @@ STAGING_MOODLE_CPU_REQUEST=500m
 STAGING_MOODLE_MEMORY_REQUEST=1024Mi
 STAGING_PGBOUNCER_CPU_REQUEST=120m
 STAGING_PGBOUNCER_MEMORY_REQUEST=96Mi
+
+# Observability profile by workspace:
+# - staging defaults to no Prometheus/Grafana/postgres-exporter
+# - production defaults to enabled
+STAGING_ENABLE_OBSERVABILITY_STACK=false
+PRODUCTION_ENABLE_OBSERVABILITY_STACK=true
+
+# k6 synthetic probe cleanup behavior:
+# - staging defaults to cleanup
+# - production defaults to keep (no automatic deletion)
+STAGING_ENABLE_K6_SYNTHETIC_CLEANUP=true
+PRODUCTION_ENABLE_K6_SYNTHETIC_CLEANUP=false
 ```
 
 ## Commands (DigitalOcean)
@@ -144,14 +156,14 @@ That message comes from **kubectl/helm** when your workstation cannot reach the 
 | Terraform | DOKS cluster, Managed PostgreSQL, outputs for Helm |
 | Longhorn | StorageClass + CSI for RWX volumes |
 | metrics-server | Installed (cluster metrics; `kubectl top`) |
-| Prometheus stack | kube-prometheus-stack (+ adapter optional); Grafana Cloud if configured in `.env` |
+| Prometheus stack | production: kube-prometheus-stack (+ adapter optional); staging: skipped by default |
 | Helm | `helm upgrade --install moodle` with DB/LB/pgbouncer values (you do not need to run Helm manually) |
 | ExternalDNS | If `CF_API_TOKEN` is set |
 | DB job | `GRANT` on `public` for the app user |
 | Wait / install | Wait for web pod → moodledata permissions → `install_database.php` if fresh |
 | Moodle CLI | Redis MUC mapping + lean site settings (`step_configure_moodle`) |
-| postgres-exporter | Scrapes Managed Postgres |
-| k6 probe manifest | Optional synthetic checks |
+| postgres-exporter | production: enabled; staging: skipped by default |
+| k6 synthetic cleanup | staging: cleanup enabled by default; production: keep by default |
 
 ## Load testing (stress-test)
 

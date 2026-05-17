@@ -69,7 +69,7 @@ LIVE_K6_OUTPUT="${LIVE_K6_OUTPUT:-false}"
 # Default: web-dashboard + browser; SHOW_WEB_DASHBOARD=false to disable
 SHOW_WEB_DASHBOARD="${SHOW_WEB_DASHBOARD:-true}"
 # Full UI needs ?endpoint=/ for SSE metrics.
-K6_DASHBOARD_UI_URL="${K6_DASHBOARD_UI_URL:-http://127.0.0.1:5665/ui?endpoint=/}"
+K6_DASHBOARD_UI_URL="${K6_DASHBOARD_UI_URL:-http://localhost:5665/ui?endpoint=/}"
 # If true, free 5665/6565 before run (stale k6 → empty dashboard / address in use)
 K6_FREE_DASHBOARD_PORT="${K6_FREE_DASHBOARD_PORT:-true}"
 SHOW_GRAFANA_HINT="${SHOW_GRAFANA_HINT:-false}"

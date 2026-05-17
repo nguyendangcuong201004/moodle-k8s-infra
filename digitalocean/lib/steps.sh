@@ -211,9 +211,37 @@ step_postgres_exporter() {
   fi
 }
 
+step_remove_postgres_exporter() {
+  echo "=== remove postgres-exporter ==="
+  _kubectl get ns monitoring >/dev/null 2>&1 || return 0
+
+  kubectl delete deployment/postgres-exporter -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete svc/postgres-exporter -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete servicemonitor/postgres-exporter -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete secret/postgres-exporter-credentials -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+
+  kubectl delete deployment/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete svc/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete servicemonitor/postgres-exporter-standby -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete secret/postgres-exporter-standby-credentials -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+}
+
+step_disable_observability_components() {
+  echo "=== remove monitoring stack ==="
+  _kubectl get ns monitoring >/dev/null 2>&1 || return 0
+
+  # Keep this tolerant so staging setup stays idempotent even when releases are absent.
+  _helm -n monitoring uninstall kube-prometheus-stack >/dev/null 2>&1 || true
+  _helm -n monitoring uninstall prometheus-adapter >/dev/null 2>&1 || true
+  kubectl delete secret grafana-cloud-credentials -n monitoring --ignore-not-found=true >/dev/null 2>&1 || true
+
+  step_remove_postgres_exporter
+  step_remove_k6_synthetic_probe
+}
+
 step_remove_k6_synthetic_probe() {
   echo "=== remove k6 synthetic probe ==="
-  ensure_namespace monitoring
+  _kubectl get ns monitoring >/dev/null 2>&1 || return 0
   kubectl -n monitoring delete deployment/k6-synthetic-probe --ignore-not-found=true >/dev/null 2>&1 || true
   kubectl -n monitoring delete configmap/k6-synthetic-probe-script --ignore-not-found=true >/dev/null 2>&1 || true
 }
@@ -287,6 +315,7 @@ step_helm_deploy() {
 
   local ro_args=()
   local stage_args=()
+  local observability_args=()
   local target_storage_class="longhorn"
 
   if [[ "${WORKSPACE}" == "staging" ]]; then
@@ -349,6 +378,13 @@ step_helm_deploy() {
     echo "Staging mode: web request cpu=${STAGING_MOODLE_CPU_REQUEST} mem=${STAGING_MOODLE_MEMORY_REQUEST}"
   fi
 
+  # PodMonitor requires Prometheus Operator CRDs. If observability stack is disabled
+  # (default on staging), disable PodMonitor rendering to avoid Helm install failure.
+  if [[ "${ENABLE_OBSERVABILITY_STACK}" != "true" ]]; then
+    observability_args+=(--set metrics.podMonitor.enabled=false)
+    echo "Observability disabled: metrics.podMonitor.enabled=false"
+  fi
+
   helm upgrade --install moodle "${HELM_CHART}" \
     --namespace "${MOODLE_NAMESPACE}" --create-namespace \
     -f "${HELM_CHART}/values.yaml" \
@@ -361,7 +397,7 @@ step_helm_deploy() {
     --set ingress.enabled=false \
     --set "service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}" \
     --set "service.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
-    "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}" "${stage_args[@]}"
+    "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}" "${stage_args[@]}" "${observability_args[@]}"
 }
 
 # Apply MUC caches from Helm-rendered ConfigMap after Moodle exists in DB (cannot run sooner).
