@@ -203,12 +203,16 @@ run_terraform() {
     echo "Direct DB + PgBouncer (${PGBOUNCER_POOL_MODE}, pool=${PGBOUNCER_DEFAULT_POOL_SIZE})"
   fi
 
-  # Read replica when read split is enabled
-  if [[ "${USE_MANAGED_POOL}" != "true" && "${MOODLE_ENABLE_READ_SPLIT}" == "true" ]]; then
+  # Discover standby independently from Moodle read-split. Monitoring can scrape
+  # the replica even when application reads are still pinned to the primary.
+  if [[ "${USE_MANAGED_POOL}" != "true" ]]; then
     local cr; cr=$(curl -sS -H "Authorization: Bearer ${DO_TOKEN}" \
       "https://api.digitalocean.com/v2/databases/${DB_CLUSTER_ID}" 2>/dev/null || true)
     DB_READONLY_HOST=$(echo "${cr}" | jq -r '.database.standby_connection.host // empty' || true)
     [[ -z "${DB_READONLY_HOST}" ]] && DB_READONLY_HOST="${MOODLE_DB_READONLY_HOST:-}"
+    if [[ -n "${DB_READONLY_HOST}" && "${DB_READONLY_HOST}" != "${DB_HOST}" ]]; then
+      echo "Standby DB discovered for monitoring: ${DB_READONLY_HOST}"
+    fi
   fi
 
   local raw; raw=$(terraform output -raw kubeconfig)

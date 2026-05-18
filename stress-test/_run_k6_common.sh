@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 K6_SCRIPT="${SCRIPT_DIR}/k6-moodle.js"
 OUT_DIR="${SCRIPT_DIR}/results"
 mkdir -p "${OUT_DIR}"
+TEST_NAME="${TEST_NAME:-staircase}"
 
 if ! command -v k6 >/dev/null 2>&1; then
   echo "k6 is required. Install from https://k6.io/docs/get-started/installation/"
@@ -71,13 +72,17 @@ SHOW_WEB_DASHBOARD="${SHOW_WEB_DASHBOARD:-true}"
 K6_DASHBOARD_UI_URL="${K6_DASHBOARD_UI_URL:-http://127.0.0.1:5665/ui?endpoint=/}"
 # If true, free 5665/6565 before run (stale k6 → empty dashboard / address in use)
 K6_FREE_DASHBOARD_PORT="${K6_FREE_DASHBOARD_PORT:-true}"
+SHOW_GRAFANA_HINT="${SHOW_GRAFANA_HINT:-false}"
 # K6_WEB_DASHBOARD_PERIOD must be a duration (e.g. 10s); plain "10" breaks metrics on the UI
 if [[ -n "${K6_WEB_DASHBOARD_PERIOD:-}" ]] && [[ "${K6_WEB_DASHBOARD_PERIOD}" =~ ^[0-9]+$ ]]; then
   export K6_WEB_DASHBOARD_PERIOD="${K6_WEB_DASHBOARD_PERIOD}s"
 fi
 PROFILE="${PROFILE:-mixed}"
 COURSE_PATH="${COURSE_PATH:-/course/view.php?id=2}"
-QUIZ_PATH="${QUIZ_PATH:-/mod/quiz/view.php?id=1}"
+QUIZ_PATH_WAS_SET="${QUIZ_PATH+x}"
+QUIZ_PATH="${QUIZ_PATH:-}"
+QUIZ_NAME="${QUIZ_NAME:-BASIC MATH QUIZ}"
+QUIZ_PATH_AUTO_DETECT="${QUIZ_PATH_AUTO_DETECT:-true}"
 AUTH_USER_PREFIX="${AUTH_USER_PREFIX:-user}"
 AUTH_USER_START="${AUTH_USER_START:-1}"
 AUTH_USER_COUNT="${AUTH_USER_COUNT:-500}"
@@ -111,6 +116,64 @@ THINK_AFTER_REPORT_MAX_SEC="${THINK_AFTER_REPORT_MAX_SEC:-2}"
 THINK_AFTER_GRADEBOOK_MIN_SEC="${THINK_AFTER_GRADEBOOK_MIN_SEC:-0.5}"
 THINK_AFTER_GRADEBOOK_MAX_SEC="${THINK_AFTER_GRADEBOOK_MAX_SEC:-2}"
 
+if [[ -z "${QUIZ_PATH}" || "${QUIZ_PATH_AUTO_DETECT}" == "true" ]]; then
+  if [[ -z "${KUBECONFIG:-}" ]]; then
+    for _kc in \
+      "${ROOT_DIR}/digitalocean/kubeconfig-production" \
+      "${ROOT_DIR}/digitalocean/kubeconfig-staging" \
+      "${ROOT_DIR}/digitalocean/kubeconfig"; do
+      if [[ -f "${_kc}" ]]; then
+        export KUBECONFIG="${_kc}"
+        break
+      fi
+    done
+  fi
+
+  if command -v kubectl >/dev/null 2>&1 && [[ -n "${KUBECONFIG:-}" ]]; then
+    COURSE_ID="$(printf '%s' "${COURSE_PATH}" | sed -nE 's#.*[?&]id=([0-9]+).*#\1#p' | head -n 1)"
+    MOODLE_POD="$(
+      kubectl -n moodle get pod -l 'app.kubernetes.io/instance=moodle,app.kubernetes.io/name=moodle,role=web' \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
+    )"
+    if [[ -n "${MOODLE_POD}" && -n "${COURSE_ID}" ]]; then
+      QUIZ_CMID="$(
+        kubectl -n moodle exec "${MOODLE_POD}" -c moodle -- env "K6_COURSE_ID=${COURSE_ID}" "K6_QUIZ_NAME=${QUIZ_NAME}" php -r '
+          define("CLI_SCRIPT", true);
+          require "/var/www/html/config.php";
+          global $DB;
+          $courseid = (int)getenv("K6_COURSE_ID");
+          $quizname = getenv("K6_QUIZ_NAME");
+          $cmid = $DB->get_field_sql("
+              SELECT cm.id
+                FROM {course_modules} cm
+                JOIN {modules} m ON m.id = cm.module
+                JOIN {quiz} q ON q.id = cm.instance
+               WHERE cm.course = :courseid
+                 AND m.name = :module
+                 AND q.name = :quizname
+                 AND cm.deletioninprogress = 0
+               ORDER BY cm.id ASC
+               LIMIT 1",
+              ["courseid" => $courseid, "module" => "quiz", "quizname" => $quizname],
+              IGNORE_MISSING);
+          if ($cmid) {
+              echo $cmid;
+          }
+        ' 2>/dev/null
+      )"
+      if [[ "${QUIZ_CMID}" =~ ^[0-9]+$ ]]; then
+        QUIZ_PATH="/mod/quiz/view.php?id=${QUIZ_CMID}"
+        echo "Auto-detected QUIZ_PATH=${QUIZ_PATH} (quiz name: ${QUIZ_NAME})"
+      fi
+    fi
+  fi
+fi
+
+QUIZ_PATH="${QUIZ_PATH:-/mod/quiz/view.php?id=1}"
+if [[ -z "${QUIZ_PATH_WAS_SET}" && "${QUIZ_PATH}" == "/mod/quiz/view.php?id=1" ]]; then
+  echo "Warning: using fallback QUIZ_PATH=${QUIZ_PATH}. Run seed-auth-quiz-data.sh or set QUIZ_PATH explicitly."
+fi
+
 if [[ -n "${LOGIN_USERS_FILE}" && -z "${LOGIN_USERS_CSV}" ]]; then
   if [[ -f "${LOGIN_USERS_FILE}" ]]; then
     LOGIN_USERS_CSV="$(<"${LOGIN_USERS_FILE}")"
@@ -135,7 +198,7 @@ if [[ -z "${HOST_MAP}" && -n "${BASE_HOST}" ]]; then
       echo "Local DNS cannot resolve ${BASE_HOST}; auto-enabled HOST_MAP=${HOST_MAP}"
     else
       echo "Warning: local DNS cannot resolve ${BASE_HOST} and no fallback IP was discovered."
-      echo "Set HOST_MAP manually, e.g.: HOST_MAP='${BASE_HOST}=<ip>' ./run-stress-test.sh"
+      echo "Set HOST_MAP manually, e.g.: HOST_MAP='${BASE_HOST}=<ip>' ./0_stress_testing.sh"
     fi
   fi
 fi
@@ -195,39 +258,48 @@ _free_k6_dashboard_ports_if_busy() {
   fi
 }
 
-printf "Capacity test configuration:\n"
-printf "  BASE_URL=%s\n" "${BASE_URL}"
-printf "  START_VUS=%s STEP_VUS=%s MAX_VUS=%s\n" "${START_VUS}" "${STEP_VUS}" "${MAX_VUS}"
-printf "  STEP_RAMP=%s STEP_HOLD=%s\n" "${STEP_RAMP}" "${STEP_HOLD}"
-printf "  MAX_P95_MS=%s MAX_P99_MS=%s MAX_FAIL_RATE=%s ABORT_DELAY=%s\n\n" "${MAX_P95_MS}" "${MAX_P99_MS}" "${MAX_FAIL_RATE}" "${ABORT_DELAY}"
-printf "  MAX_REDIRECTS=%s HTTP_TIMEOUT=%s\n\n" "${MAX_REDIRECTS}" "${HTTP_TIMEOUT}"
-printf "  PROFILE=%s COURSE_PATH=%s QUIZ_PATH=%s QUIZ_DO_SUBMIT=%s\n\n" "${PROFILE}" "${COURSE_PATH}" "${QUIZ_PATH}" "${QUIZ_DO_SUBMIT}"
-if [[ "${PROFILE}" == "auth_quiz" || "${PROFILE}" == "mixed_roles" ]]; then
-  printf "  AUTH_USER_PREFIX=%s AUTH_USER_START=%s AUTH_USER_COUNT=%s\n" "${AUTH_USER_PREFIX}" "${AUTH_USER_START}" "${AUTH_USER_COUNT}"
-  printf "  QUIZ_TEXT_ANSWERS=%s\n" "${QUIZ_TEXT_ANSWERS}"
-  if [[ "${PROFILE}" == "mixed_roles" ]]; then
-    printf "  TEACHER_USER_PREFIX=%s TEACHER_USER_COUNT=%s TEACHER_RATIO_PCT=%s%%\n" "${TEACHER_USER_PREFIX}" "${TEACHER_USER_COUNT}" "${TEACHER_RATIO_PCT}"
-  fi
-  printf "  Think time (s): login [%s–%s] course [%s–%s] quiz_view [%s–%s] before_submit [%s–%s] iteration [%s–%s]\n\n" \
-    "${THINK_AFTER_LOGIN_MIN_SEC}" "${THINK_AFTER_LOGIN_MAX_SEC}" \
-    "${THINK_AFTER_COURSE_MIN_SEC}" "${THINK_AFTER_COURSE_MAX_SEC}" \
-    "${THINK_AFTER_QUIZ_VIEW_MIN_SEC}" "${THINK_AFTER_QUIZ_VIEW_MAX_SEC}" \
-    "${THINK_BEFORE_SUBMIT_MIN_SEC}" "${THINK_BEFORE_SUBMIT_MAX_SEC}" \
-    "${THINK_ITERATION_MIN_SEC}" "${THINK_ITERATION_MAX_SEC}"
-  if [[ -n "${STAIRCASE_PLAN_PRESET:-}" ]]; then
-    printf "  Plan: STAIRCASE_PLAN_PRESET (1 user → %s VU ceiling in last stage)\n\n" "${MAX_VUS}"
+duration_to_seconds() {
+  local raw="${1:-0}"
+  local n unit
+  if [[ "${raw}" =~ ^([0-9]+)(ms|s|m|h)?$ ]]; then
+    n="${BASH_REMATCH[1]}"
+    unit="${BASH_REMATCH[2]:-s}"
+    case "${unit}" in
+      ms) echo 0 ;;
+      s) echo "${n}" ;;
+      m) echo $((n * 60)) ;;
+      h) echo $((n * 3600)) ;;
+      *) echo 0 ;;
+    esac
   else
-    STEPS=0
-    for ((v = START_VUS; v <= MAX_VUS; v += STEP_VUS)); do STEPS=$((STEPS + 1)); done
-    RAMP_SEC="$(echo "${STEP_RAMP}" | sed 's/s$//')"
-    HOLD_SEC="$(echo "${STEP_HOLD}" | sed 's/s$//')"
-    ESTIMATE_SEC=$(( STEPS * (RAMP_SEC + HOLD_SEC) ))
-    printf "  ~Staircase duration: %s steps × (%s+%s) ≈ %ss (~%sm)\n\n" "${STEPS}" "${STEP_RAMP}" "${STEP_HOLD}" "${ESTIMATE_SEC}" "$(( (ESTIMATE_SEC + 59) / 60 ))"
+    echo 0
   fi
-fi
-if [[ -n "${HOST_MAP}" ]]; then
-  printf "  HOST_MAP=%s\n\n" "${HOST_MAP}"
-fi
+}
+
+format_seconds() {
+  local total="${1:-0}"
+  local h=$((total / 3600))
+  local m=$(((total % 3600) / 60))
+  local s=$((total % 60))
+  if (( h > 0 )); then
+    printf "%dh%02dm%02ds" "${h}" "${m}" "${s}"
+  elif (( m > 0 )); then
+    printf "%dm%02ds" "${m}" "${s}"
+  else
+    printf "%ds" "${s}"
+  fi
+}
+
+plan_total_seconds() {
+  local plan="${1:-}"
+  local total=0 stage duration
+  IFS=',' read -ra stages <<< "${plan}"
+  for stage in "${stages[@]}"; do
+    duration="${stage%%:*}"
+    total=$((total + $(duration_to_seconds "${duration}")))
+  done
+  echo "${total}"
+}
 
 if [[ -z "${STAIRCASE_PLAN_PRESET:-}" ]]; then
   if (( START_VUS <= 0 || STEP_VUS <= 0 || MAX_VUS < START_VUS )); then
@@ -252,23 +324,26 @@ else
   done
 fi
 
+PLANNED_DURATION_SECONDS="$(plan_total_seconds "${STAIRCASE_PLAN}")"
+PLANNED_DURATION_TEXT="$(format_seconds "${PLANNED_DURATION_SECONDS}")"
+SAFE_TEST_NAME="$(printf '%s' "${TEST_NAME}" | tr -cs 'A-Za-z0-9_.-' '-')"
+SAFE_TEST_NAME="${SAFE_TEST_NAME%-}"
+SAFE_TEST_NAME="${SAFE_TEST_NAME:-staircase}"
 TS="$(date +%Y%m%d-%H%M%S)"
-SUMMARY_JSON="${OUT_DIR}/summary-staircase-${TS}.json"
-LOG_FILE="${OUT_DIR}/run-staircase-${TS}.log"
+SUMMARY_JSON="${OUT_DIR}/summary-${SAFE_TEST_NAME}-${TS}.json"
+LOG_FILE="${OUT_DIR}/run-${SAFE_TEST_NAME}-${TS}.log"
 
-echo "=== Running staircase stress test (no ramp-down, no rerun) ==="
-echo "Stage plan: ${STAIRCASE_PLAN}"
-echo "Planned peak concurrent VUs (last stage target): ${PLANNED_MAX_VUS}"
-if [[ "${LIVE_K6_OUTPUT}" == "true" ]]; then
-  echo "k6 output: terminal + ${LOG_FILE}"
-else
-  echo "k6 output: ${LOG_FILE} only (terminal stays quiet). LIVE_K6_OUTPUT=true to stream here."
-fi
+echo "=== ${TEST_NAME} k6 test ==="
+echo "Base URL: ${BASE_URL}"
+echo "Profile: ${PROFILE}"
+echo "Plan: ${STAIRCASE_PLAN}"
+echo "Planned duration: ${PLANNED_DURATION_TEXT}; peak VUs: ${PLANNED_MAX_VUS}"
+echo "SLO: p95<=${MAX_P95_MS}ms, p99<=${MAX_P99_MS}ms, fail_rate<=${MAX_FAIL_RATE}"
+echo "Log: ${LOG_FILE}"
 
 if [[ "${SHOW_WEB_DASHBOARD}" == "true" ]]; then
   _free_k6_dashboard_ports_if_busy
-  echo "k6 dashboard URL: ${K6_DASHBOARD_UI_URL}"
-  echo "  (charts need ~15–45s after load starts; refresh if empty while test is still running)"
+  echo "Dashboard: ${K6_DASHBOARD_UI_URL}"
   ( sleep 6 && _open_dashboard_browser "${K6_DASHBOARD_UI_URL}" ) &
 fi
 
@@ -323,6 +398,7 @@ run_k6() {
   k6 run "${K6_FLAGS_ARR[@]}" "${K6_SCRIPT}" --summary-export "${SUMMARY_JSON}"
 }
 
+RUN_START_EPOCH="$(date +%s)"
 if [[ "${LIVE_K6_OUTPUT}" == "true" ]]; then
   run_k6 2>&1 | tee "${LOG_FILE}"
   K6_EXIT=${PIPESTATUS[0]}
@@ -330,6 +406,9 @@ else
   run_k6 > "${LOG_FILE}" 2>&1
   K6_EXIT=$?
 fi
+RUN_END_EPOCH="$(date +%s)"
+ACTUAL_DURATION_SECONDS=$((RUN_END_EPOCH - RUN_START_EPOCH))
+ACTUAL_DURATION_TEXT="$(format_seconds "${ACTUAL_DURATION_SECONDS}")"
 
 echo ""
 echo "=== k6 finished at $(date -Iseconds) (exit code ${K6_EXIT}) ==="
@@ -342,8 +421,9 @@ if [[ -f "${SUMMARY_JSON}" ]] && jq -e . "${SUMMARY_JSON}" >/dev/null 2>&1; then
   SUMMARY_OK=true
   FAIL_RATE=$(jq -r '((.metrics.http_req_failed // {}) | .value // .values.rate // 1) | tonumber' "${SUMMARY_JSON}")
   P95_MS=$(jq -r '((.metrics.http_req_duration // {}) | .["p(95)"] // .values["p(95)"] // 999999) | tonumber' "${SUMMARY_JSON}")
-  P99_MS=$(jq -r '((.metrics.http_req_duration // {}) | .["p(99)"] // .values["p(99)"] // 999999) | tonumber' "${SUMMARY_JSON}")
-  MAX_VUS_REACHED=$(jq -r '((.metrics.vus // {}) | .max // .value // 0) | tonumber' "${SUMMARY_JSON}")
+  P99_MS=$(jq -r '((.metrics.http_req_duration // {}) | .["p(99)"] // .values["p(99)"] // empty)' "${SUMMARY_JSON}")
+  P99_MS="${P99_MS:-n/a}"
+  MAX_VUS_REACHED=$(jq -r '((.metrics.vus // {}) | .max // .value // .values.max // .values.value // 0) | tonumber' "${SUMMARY_JSON}")
 else
   FAIL_RATE="n/a"
   P95_MS="n/a"
@@ -359,10 +439,12 @@ fi
 
 echo
 echo "=========================================="
-echo "CONCURRENT VUs (peak reached in this run): ${MAX_VUS_REACHED}"
-echo "Planned ceiling (last stage target):       ${PLANNED_MAX_VUS}"
+echo "Test:              ${TEST_NAME}"
+echo "Planned duration:  ${PLANNED_DURATION_TEXT}"
+echo "Actual duration:   ${ACTUAL_DURATION_TEXT}"
+echo "Peak VUs reached:  ${MAX_VUS_REACHED} / ${PLANNED_MAX_VUS}"
 echo "=========================================="
-echo "Final result: fail_rate=${FAIL_RATE}, p95_ms=${P95_MS}, p99_ms=${P99_MS}, k6_exit=${K6_EXIT}"
+echo "Result: fail_rate=${FAIL_RATE}, p95_ms=${P95_MS}, p99_ms=${P99_MS}, k6_exit=${K6_EXIT}"
 echo "Warnings: timeouts=${TIMEOUT_COUNT}, redirect_limit_hits=${REDIRECT_WARN_COUNT}"
 
 if [[ "${SUMMARY_OK}" == "true" ]]; then
@@ -370,7 +452,7 @@ if [[ "${SUMMARY_OK}" == "true" ]]; then
     echo "Abort reason (primary): fail rate exceeded threshold (${FAIL_RATE} > ${MAX_FAIL_RATE})."
   elif awk -v p="${P95_MS}" -v lim="${MAX_P95_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
     echo "Abort reason (primary): p95 latency exceeded threshold (${P95_MS} > ${MAX_P95_MS})."
-  elif awk -v p="${P99_MS}" -v lim="${MAX_P99_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
+  elif [[ "${P99_MS}" != "n/a" ]] && awk -v p="${P99_MS}" -v lim="${MAX_P99_MS}" 'BEGIN {exit !(p > lim)}' </dev/null; then
     echo "Abort reason (primary): p99 latency exceeded threshold (${P99_MS} > ${MAX_P99_MS})."
   elif [[ ${K6_EXIT} -ne 0 ]]; then
     echo "Abort reason: threshold abort or runtime error; inspect ${LOG_FILE} for details."
@@ -381,9 +463,9 @@ fi
 
 echo
 if [[ ${K6_EXIT} -eq 0 ]]; then
-  echo "Status: completed full plan (thresholds not breached). Peak VUs=${MAX_VUS_REACHED} / planned=${PLANNED_MAX_VUS}."
+  echo "Status: completed full plan (thresholds not breached)."
 else
-  echo "Status: stopped early (threshold abort, error, or interrupt). Peak VUs reached=${MAX_VUS_REACHED} (planned ceiling=${PLANNED_MAX_VUS})."
+  echo "Status: stopped early (threshold abort, error, or interrupt)."
 fi
 
 echo "Artifacts:"
@@ -393,9 +475,9 @@ if [[ "${SHOW_WEB_DASHBOARD}" == "true" ]]; then
   echo "  k6 web UI: ${K6_DASHBOARD_UI_URL}"
 fi
 
-echo "Grafana (thesis export): set the time range to this run’s peak window and capture"
-echo "  “Moodle — Operations, SLO & scale” and “Moodle — Stack saturation & cluster”."
-echo "  ../grafana-connect.sh from this stress-test folder (imports dashboards + port-forward)."
+if [[ "${SHOW_GRAFANA_HINT}" == "true" ]]; then
+  echo "Grafana: set the time range to this run and capture the operations/stack dashboards."
+fi
 
 if [[ "${HOLD_AFTER_RUN}" == "true" ]] && [[ -t 0 ]]; then
   echo

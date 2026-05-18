@@ -1,0 +1,720 @@
+{
+  "annotations": {},
+  "editable": true,
+  "gnetId": null,
+  "links": [],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "title": "Moodle \u2014 Database read/write & replication",
+  "description": "Primary/replica effectiveness: exporter availability, PgBouncer write vs read pools, PostgreSQL tuple/block read/write activity, transaction mix, locks, conflicts, and replication lag. Read/replica panels render 0 when the read path is absent.",
+  "uid": "moodle-db-readwrite-replication",
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "moodle",
+    "postgres",
+    "read-replica",
+    "pgbouncer"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Exporter availability",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Primary DB exporter up",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "max(up{component=\"postgres\"}) or on() vector(0)",
+          "legendFormat": "postgres",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Standby DB exporter up",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "max(up{component=\"postgres-standby\"}) or on() vector(0)",
+          "legendFormat": "postgres-standby",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Write PgBouncer exporter up",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "max(up{component=\"pgbouncer\"}) or on() vector(0)",
+          "legendFormat": "pgbouncer",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Read PgBouncer exporter up",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "targets": [
+        {
+          "expr": "max(up{component=\"pgbouncer-read\"}) or on() vector(0)",
+          "legendFormat": "pgbouncer-read",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Read split effectiveness",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 7,
+      "title": "PgBouncer queries: write vs read pool",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pgbouncer_stats_totals_queries_pooled_total{component=\"pgbouncer\",database=\"moodle\"}[5m]))",
+          "legendFormat": "write pool queries/s",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(pgbouncer_stats_totals_queries_pooled_total{component=\"pgbouncer-read\",database=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "read pool queries/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "qps",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Read pool query share",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(pgbouncer_stats_totals_queries_pooled_total{component=\"pgbouncer-read\",database=\"moodle\"}[5m])) or on() vector(0)) / clamp_min((sum(rate(pgbouncer_stats_totals_queries_pooled_total{component=~\"pgbouncer|pgbouncer-read\",database=\"moodle\"}[5m])) or on() vector(0)), 0.001)",
+          "legendFormat": "read pool share",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "PgBouncer client wait: write vs read",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 9
+      },
+      "targets": [
+        {
+          "expr": "sum(pgbouncer_pools_client_waiting_connections{component=\"pgbouncer\",database=\"moodle\"}) by (pod)",
+          "legendFormat": "{{ pod }} write wait",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(pgbouncer_pools_client_waiting_connections{component=\"pgbouncer-read\",database=\"moodle\"}) by (pod)) or on() vector(0)",
+          "legendFormat": "{{ pod }} read wait",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "PgBouncer bytes: app to DB pools",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pgbouncer_stats_totals_received_bytes_total{component=\"pgbouncer\",database=\"moodle\"}[5m]))",
+          "legendFormat": "write pool received B/s",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(pgbouncer_stats_totals_received_bytes_total{component=\"pgbouncer-read\",database=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "read pool received B/s",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(pgbouncer_stats_totals_sent_bytes_total{component=\"pgbouncer\",database=\"moodle\"}[5m]))",
+          "legendFormat": "write pool sent B/s",
+          "refId": "C"
+        },
+        {
+          "expr": "(sum(rate(pgbouncer_stats_totals_sent_bytes_total{component=\"pgbouncer-read\",database=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "read pool sent B/s",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Server active connections: write vs read",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "targets": [
+        {
+          "expr": "sum(pgbouncer_pools_server_active_connections{component=\"pgbouncer\",database=\"moodle\"}) by (pod)",
+          "legendFormat": "{{ pod }} write active",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(pgbouncer_pools_server_active_connections{component=\"pgbouncer-read\",database=\"moodle\"}) by (pod)) or on() vector(0)",
+          "legendFormat": "{{ pod }} read active",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(pgbouncer_pools_server_idle_connections{component=\"pgbouncer\",database=\"moodle\"}) by (pod)",
+          "legendFormat": "{{ pod }} write idle",
+          "refId": "C"
+        },
+        {
+          "expr": "(sum(pgbouncer_pools_server_idle_connections{component=\"pgbouncer-read\",database=\"moodle\"}) by (pod)) or on() vector(0)",
+          "legendFormat": "{{ pod }} read idle",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "PostgreSQL primary vs replica activity",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      }
+    },
+    {
+      "id": 13,
+      "title": "Tuple reads: primary vs replica",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_tup_returned{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "primary tuples returned/s",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(pg_stat_database_tup_returned{component=\"postgres-standby\",datname=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "replica tuples returned/s",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_tup_fetched{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "primary tuples fetched/s",
+          "refId": "C"
+        },
+        {
+          "expr": "(sum(rate(pg_stat_database_tup_fetched{component=\"postgres-standby\",datname=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "replica tuples fetched/s",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Replica tuple-read share",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 26
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(pg_stat_database_tup_returned{component=\"postgres-standby\",datname=\"moodle\"}[5m])) or on() vector(0)) / clamp_min((sum(rate(pg_stat_database_tup_returned{component=~\"postgres|postgres-standby\",datname=\"moodle\"}[5m])) or on() vector(0)), 0.001)",
+          "legendFormat": "replica tuple read share",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Tuple writes on primary",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 26
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_tup_inserted{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "inserted/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_tup_updated{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "updated/s",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_tup_deleted{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "deleted/s",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Heap block reads/hits: primary vs replica",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_blks_read{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "primary disk reads/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(pg_stat_database_blks_hit{component=\"postgres\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "primary buffer hits/s",
+          "refId": "B"
+        },
+        {
+          "expr": "(sum(rate(pg_stat_database_blks_read{component=\"postgres-standby\",datname=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "replica disk reads/s",
+          "refId": "C"
+        },
+        {
+          "expr": "(sum(rate(pg_stat_database_blks_hit{component=\"postgres-standby\",datname=\"moodle\"}[5m]))) or on() vector(0)",
+          "legendFormat": "replica buffer hits/s",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Buffer hit ratio by role",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "(sum(rate(pg_stat_database_blks_hit{component=\"postgres\",datname=\"moodle\"}[5m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{component=\"postgres\",datname=\"moodle\"}[5m])) + sum(rate(pg_stat_database_blks_read{component=\"postgres\",datname=\"moodle\"}[5m])), 0.001)) or on() vector(0)",
+          "legendFormat": "primary",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(pg_stat_database_blks_hit{component=\"postgres-standby\",datname=\"moodle\"}[5m])) / clamp_min(sum(rate(pg_stat_database_blks_hit{component=\"postgres-standby\",datname=\"moodle\"}[5m])) + sum(rate(pg_stat_database_blks_read{component=\"postgres-standby\",datname=\"moodle\"}[5m])), 0.001)) or on() vector(0)",
+          "legendFormat": "replica",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Transactions: commit / rollback by role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "sum by (component) (rate(pg_stat_database_xact_commit{component=~\"postgres|postgres-standby\",datname=\"moodle\"}[1m]))",
+          "legendFormat": "{{ component }} commit/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (component) (rate(pg_stat_database_xact_rollback{component=~\"postgres|postgres-standby\",datname=\"moodle\"}[1m]))",
+          "legendFormat": "{{ component }} rollback/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Replication health & DB risk",
+      "type": "row",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      }
+    },
+    {
+      "id": 20,
+      "title": "Replication lag",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 43
+      },
+      "targets": [
+        {
+          "expr": "max by (component) (pg_replication_lag_seconds) or on() vector(0)",
+          "legendFormat": "{{ component }} lag seconds",
+          "refId": "A"
+        },
+        {
+          "expr": "max(pg_stat_replication_pg_wal_lsn_diff) or on() vector(0)",
+          "legendFormat": "primary WAL diff bytes",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Replica identity",
+      "type": "stat",
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 43
+      },
+      "targets": [
+        {
+          "expr": "max by (component) (pg_replication_is_replica) or on() vector(0)",
+          "legendFormat": "{{ component }} is replica",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Active connections by state and role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "targets": [
+        {
+          "expr": "sum by (component,state) (pg_stat_activity_count{component=~\"postgres|postgres-standby\"})",
+          "legendFormat": "{{ component }} / {{ state }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Locks by role and mode",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "targets": [
+        {
+          "expr": "sum by (component,mode) (pg_locks_count{component=~\"postgres|postgres-standby\",datname=\"moodle\"})",
+          "legendFormat": "{{ component }} / {{ mode }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Deadlocks / conflicts by role",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "targets": [
+        {
+          "expr": "sum by (component) (rate(pg_stat_database_deadlocks{component=~\"postgres|postgres-standby\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "{{ component }} deadlocks/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (component) (rate(pg_stat_database_conflicts{component=~\"postgres|postgres-standby\",datname=\"moodle\"}[5m]))",
+          "legendFormat": "{{ component }} conflicts/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 4
+        }
+      }
+    }
+  ]
+}

@@ -211,24 +211,11 @@ step_postgres_exporter() {
   fi
 }
 
-step_k6_synthetic_probe() {
-  local manifest="${INFRA_DIR}/digitalocean/k8s/k6-synthetic-probe.yaml"
-  [[ -f "${manifest}" ]] || return
-  echo "=== k6 synthetic probe ==="
+step_remove_k6_synthetic_probe() {
+  echo "=== remove k6 synthetic probe ==="
   ensure_namespace monitoring
-  # Render to a file: kubectl_retry re-invokes kubectl; stdin from a pipe is consumed once,
-  # so retries would otherwise see EOF and emit "no objects passed to apply".
-  local rendered
-  rendered="$(mktemp)"
-  sed \
-    -e "s|BASE_URL_PLACEHOLDER|${SITE_URL}|g" \
-    -e "s|PROM_RW_URL_PLACEHOLDER|http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/write|g" \
-    -e "s|TEST_ID_PLACEHOLDER|moodle-synthetic|g" \
-    "${manifest}" > "${rendered}"
-  # Without this, kubectl downloads OpenAPI v2 from apiserver; flaky network → timeout and misleading
-  # "error validating STDIN" / empty retries when combined with piped manifests elsewhere.
-  kubectl apply --validate=false -f "${rendered}"
-  rm -f "${rendered}"
+  kubectl -n monitoring delete deployment/k6-synthetic-probe --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl -n monitoring delete configmap/k6-synthetic-probe-script --ignore-not-found=true >/dev/null 2>&1 || true
 }
 
 step_grafana_dashboards() {
@@ -292,6 +279,37 @@ step_grafana_dashboards() {
   fi
 }
 
+step_ingress_nginx() {
+  echo "=== Ingress Nginx ==="
+  # Use F5/NGINX Ingress Controller here because the community ingress-nginx
+  # controller does not support the NGINX least_conn upstream method.
+  local uninstall_output
+  if ! uninstall_output=$(_helm -n ingress-nginx uninstall ingress-nginx 2>&1); then
+    case "${uninstall_output}" in
+      *"Release not loaded"*|*"release: not found"*)
+        ;;
+      *)
+        printf '%s\n' "${uninstall_output}" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
+    --namespace ingress-nginx --create-namespace \
+    --set controller.kind=daemonset \
+    --set controller.service.type=LoadBalancer \
+    --set controller.service.externalTrafficPolicy=Local \
+    --set "controller.service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}-ingress" \
+    --set "controller.service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-type=REGIONAL_NETWORK" \
+    --set-string controller.config.entries.lb-method=least_conn \
+    --set-string controller.config.entries.keepalive=16 \
+    --set-string controller.config.entries.keepalive-requests=100 \
+    --set-string controller.config.entries.keepalive-timeout=30s \
+    --set controller.prometheus.create=true \
+    --wait --timeout 5m
+}
+
 # Step 4: Helm
 step_helm_deploy() {
   echo "=== Helm deploy Moodle ==="
@@ -341,7 +359,6 @@ step_helm_deploy() {
     )
     echo "Read split: write=${DB_HOST} read=${DB_READONLY_HOST} (PgBouncer read sidecar :6433)"
   fi
-
   if [[ "${WORKSPACE}" == "staging" && -n "${STAGING_MOODLE_REPLICA_COUNT:-}" ]]; then
     stage_args+=(--set replicaCount="${STAGING_MOODLE_REPLICA_COUNT}")
     echo "Staging mode: replicaCount=${STAGING_MOODLE_REPLICA_COUNT}"
@@ -370,10 +387,16 @@ step_helm_deploy() {
     --set db.password="${DB_APP_PASS}" --set db.sslmode=require \
     --set moodle.wwwroot="${SITE_URL}" \
     --set persistence.storageClass="${target_storage_class}" \
-    --set service.type=LoadBalancer \
-    --set ingress.enabled=false \
-    --set "service.annotations.service\.beta\.kubernetes\.io/do-loadbalancer-name=${LB_NAME}" \
-    --set "service.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
+    --set service.type=ClusterIP \
+    --set ingress.enabled=true \
+    --set ingress.className=nginx \
+    --set ingress.host="${EXTERNAL_DNS_HOSTNAME}" \
+    --set-string "ingress.annotations.nginx\.org/lb-method=least_conn" \
+    --set-string "ingress.annotations.nginx\.org/client-max-body-size=100m" \
+    --set-string "ingress.annotations.nginx\.org/proxy-read-timeout=300s" \
+    --set-string "ingress.annotations.nginx\.org/proxy-send-timeout=300s" \
+    --set-string "ingress.annotations.nginx\.org/proxy-next-upstream-tries=1" \
+    --set "ingress.annotations.external-dns\.alpha\.kubernetes\.io/hostname=${EXTERNAL_DNS_HOSTNAME}" \
     "${HELM_PGBOUNCER_ARGS[@]}" "${ro_args[@]}" "${stage_args[@]}"
 }
 
@@ -633,7 +656,7 @@ EOF
   exec_retry runuser -u www-data -- php admin/cli/cfg.php --name=enabledashboard --set=1 || true
 }
 
-# Step 8: Lean site settings (MUC cache mapping: step_moodle_muc_cache_setup earlier)
+# Step 8: Lean site settings. Run MUC mapping after this step because it purges Moodle caches.
 step_configure_moodle() {
   echo "=== Configure Moodle (lean mode) ==="
 
@@ -659,6 +682,8 @@ $s = [
   'quiz_autosaveperiod'          => 60,
   'messaging'                    => 0,
   'messagingallusers'            => 0,
+  'noemailever'                  => 1,
+  'sendmail'                     => '/bin/true',
   'sendcoursewelcomemessage'     => 0,
   'block_online_users_timetosee' => 0,      // disable online-users block
   'enablebadges'                 => 0,

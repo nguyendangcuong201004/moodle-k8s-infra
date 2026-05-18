@@ -35,14 +35,18 @@ DB_APP_HOST="" DB_APP_PORT="" DB_APP_PASS="" DB_APP_NAME="" DB_READONLY_HOST=""
 USE_MANAGED_POOL="false"
 MOODLE_USE_MANAGED_POOL="${MOODLE_USE_MANAGED_POOL:-false}"
 # Read replica wiring (standby host from DO API) requires sidecar PgBouncer, not DO managed pool.
-MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-true}"
+# Keep this opt-in: write-heavy quiz/exam flows need read-your-writes semantics and can break
+# when Moodle reads a just-created attempt from a lagging standby.
+MOODLE_ENABLE_READ_SPLIT="${MOODLE_ENABLE_READ_SPLIT:-false}"
 
 # PgBouncer sidecar when not using managed pool
 PGBOUNCER_POOL_MODE="${PGBOUNCER_POOL_MODE:-session}"
 PGBOUNCER_AUTH_TYPE="${PGBOUNCER_AUTH_TYPE:-scram-sha-256}"
-# Per-pod upstream limit; ~floor(85/replicaCount) for 97-conn tier when using sidecar (not managed pool).
-PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-13}"
-PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-5}"
+# Per-pod upstream limit; default production target keeps the full 84-connection app pool
+# even when HPA scales web pods to 6: 6 web pods × 14 server connections = 84.
+# Keep reserve at 0 so PgBouncer cannot exceed that budget.
+PGBOUNCER_DEFAULT_POOL_SIZE="${PGBOUNCER_DEFAULT_POOL_SIZE:-14}"
+PGBOUNCER_RESERVE_POOL_SIZE="${PGBOUNCER_RESERVE_POOL_SIZE:-0}"
 PGBOUNCER_MAX_CLIENT_CONN="${PGBOUNCER_MAX_CLIENT_CONN:-2000}"
 
 # Grafana Cloud (optional)

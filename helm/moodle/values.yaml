@@ -1,7 +1,7 @@
 # HCMUT Moodle LMS - Default Helm Values
 # Override per cloud via setup.sh --set flags or custom values files.
 
-replicaCount: 6
+replicaCount: 3
 
 image:
   repository: ndcuongdevops/moodle-lms
@@ -46,7 +46,8 @@ db:
 # PgBouncer sidecar in each web pod: app -> localhost:6432 -> primary Postgres
 # When using DO managed pool (pgbouncer.enabled=false), pool size is set in Terraform (default 85).
 # With read replica + readReplica.enabled: Moodle readonly -> localhost:6433 -> standby (second sidecar).
-# Keep replicaCount × defaultPoolSize under each node's connection limit (e.g. db-s-2vcpu-4gb ≈ 97: 6×13=78 per primary and per standby when read replica sidecar is on).
+# Keep maxReplicas × (defaultPoolSize + reservePoolSize) under the DB connection budget.
+# The DigitalOcean setup defaults to 6 × (14 + 0) = 84 app server connections.
 pgbouncer:
   enabled: true
   image: edoburu/pgbouncer:latest
@@ -55,8 +56,8 @@ pgbouncer:
   authType: scram-sha-256
   poolMode: session
   maxClientConn: 1200
-  defaultPoolSize: 13
-  reservePoolSize: 3
+  defaultPoolSize: 14
+  reservePoolSize: 0
   reservePoolTimeoutSeconds: 3
   serverIdleTimeoutSeconds: 30
   queryWaitTimeoutSeconds: 120
@@ -74,8 +75,8 @@ pgbouncer:
     listenPort: 6433
     poolMode: session
     maxClientConn: 1200
-    defaultPoolSize: 13
-    reservePoolSize: 3
+    defaultPoolSize: 14
+    reservePoolSize: 0
     reservePoolTimeoutSeconds: 3
     serverIdleTimeoutSeconds: 30
     queryWaitTimeoutSeconds: 120
@@ -104,6 +105,13 @@ service:
   type: ClusterIP
   port: 80
   annotations: {}
+  sessionAffinity: None
+  sessionAffinityConfig: {}
+  # For a controlled sticky-routing test on LoadBalancer/NodePort:
+  # sessionAffinity: ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
 
 # Ingress configuration (disable for LoadBalancer-based setups)
 ingress:
@@ -111,6 +119,14 @@ ingress:
   className: nginx
   host: ""
   annotations:
+    # F5/NGINX Ingress Controller supports least_conn via nginx.org/lb-method.
+    # Community ingress-nginx only supports round_robin/ewma for this annotation.
+    nginx.org/lb-method: "least_conn"
+    nginx.org/client-max-body-size: "100m"
+    nginx.org/proxy-read-timeout: "300s"
+    nginx.org/proxy-send-timeout: "300s"
+    nginx.org/proxy-next-upstream-tries: "1"
+    nginx.ingress.kubernetes.io/proxy-next-upstream-tries: "1"
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
@@ -122,12 +138,12 @@ resources:
     cpu: 1000m
     memory: 1536Mi
   limits:
-    cpu: 2500m
+    cpu: 3000m
     memory: 4Gi
 
 autoscaling:
-  enabled: false
-  minReplicas: 6
+  enabled: true
+  minReplicas: 3
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
@@ -144,19 +160,25 @@ autoscaling:
       stabilizationWindowSeconds: 60
       podValue: 4
 
-# Pod anti-affinity to spread across nodes
+# Pod placement: keep web pods spread across nodes. This matters for load tests
+# because each pod has large PHP-FPM/DB-pool limits and should get its own node.
 affinity:
   podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: app.kubernetes.io/name
-                operator: In
-                values:
-                  - moodle
-          topologyKey: kubernetes.io/hostname
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: moodle
+            role: web
+        topologyKey: kubernetes.io/hostname
+
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: moodle
+        role: web
 
 # HTTP probes hit the nginx container. /nginx-health is static 200; use browser/curl for real Moodle checks.
 probes:

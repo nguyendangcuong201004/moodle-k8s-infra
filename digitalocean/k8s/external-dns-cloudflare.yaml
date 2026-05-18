@@ -60,7 +60,7 @@ spec:
           image: registry.k8s.io/external-dns/external-dns:v0.14.2
           args:
             # Quote scalars so YAML cannot coerce flags / numeric-looking tokens into non-strings.
-            - "--source=service"
+            - "--source=ingress"
             - "--domain-filter=EXTERNAL_DNS_DOMAIN_PLACEHOLDER"
             - "--provider=cloudflare"
             - "--cloudflare-proxied"

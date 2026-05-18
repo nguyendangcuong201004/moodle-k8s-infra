@@ -66,6 +66,17 @@ require_once($CFG->dirroot . '/mod/quiz/lib.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 require_once($CFG->libdir . '/questionlib.php');
 require_once($CFG->libdir . '/moodlelib.php');
+require_once($CFG->libdir . '/gradelib.php');
+require_once($CFG->libdir . '/grade/grade_category.php');
+
+// Load-test seed data must not depend on an SMTP/sendmail agent in the PHP image.
+// Some Moodle APIs can emit enrolment/course-module notifications inside DB transactions;
+// if PHP cannot instantiate mail, the transaction is left aborted and later APIs fail.
+$CFG->noemailever = true;
+$CFG->sendmail = '/bin/true';
+set_config('noemailever', 1);
+set_config('sendmail', '/bin/true');
+\core\session\manager::set_user(get_admin());
 
 [$options] = cli_get_params([
     'userprefix' => 'user',
@@ -88,6 +99,112 @@ $teachercount = (int)$options['teachercount'];
 $courseshortname = (string)$options['courseshortname'];
 $coursefullname = (string)$options['coursefullname'];
 $quizname = (string)$options['quizname'];
+
+function k6_quiz_defaults(stdClass $quiz): stdClass {
+    $quiz->intro = $quiz->intro ?? 'Quiz toan co ban (2+2, 3+5...)';
+    $quiz->introformat = $quiz->introformat ?? FORMAT_HTML;
+    $quiz->timeopen = $quiz->timeopen ?? 0;
+    $quiz->timeclose = $quiz->timeclose ?? 0;
+    $quiz->timelimit = $quiz->timelimit ?? 0;
+    $quiz->overduehandling = $quiz->overduehandling ?? 'autosubmit';
+    $quiz->graceperiod = $quiz->graceperiod ?? 0;
+    $quiz->preferredbehaviour = $quiz->preferredbehaviour ?? 'deferredfeedback';
+    $quiz->canredoquestions = $quiz->canredoquestions ?? 0;
+    $quiz->attempts = $quiz->attempts ?? 0;
+    $quiz->attemptonlast = $quiz->attemptonlast ?? 0;
+    $quiz->grademethod = $quiz->grademethod ?? QUIZ_GRADEHIGHEST;
+    $quiz->decimalpoints = $quiz->decimalpoints ?? 2;
+    $quiz->questiondecimalpoints = $quiz->questiondecimalpoints ?? -1;
+    $quiz->reviewattempt = $quiz->reviewattempt ?? 0;
+    $quiz->reviewcorrectness = $quiz->reviewcorrectness ?? 0;
+    $quiz->reviewmaxmarks = $quiz->reviewmaxmarks ?? 0;
+    $quiz->reviewmarks = $quiz->reviewmarks ?? 0;
+    $quiz->reviewspecificfeedback = $quiz->reviewspecificfeedback ?? 0;
+    $quiz->reviewgeneralfeedback = $quiz->reviewgeneralfeedback ?? 0;
+    $quiz->reviewrightanswer = $quiz->reviewrightanswer ?? 0;
+    $quiz->reviewoverallfeedback = $quiz->reviewoverallfeedback ?? 0;
+    $quiz->questionsperpage = $quiz->questionsperpage ?? 0;
+    $quiz->navmethod = $quiz->navmethod ?? QUIZ_NAVMETHOD_FREE;
+    $quiz->shuffleanswers = $quiz->shuffleanswers ?? 1;
+    $quiz->sumgrades = $quiz->sumgrades ?? 0;
+    $quiz->grade = $quiz->grade ?? 10;
+    $quiz->password = $quiz->password ?? '';
+    $quiz->quizpassword = $quiz->quizpassword ?? $quiz->password;
+    $quiz->subnet = $quiz->subnet ?? '';
+    $quiz->browsersecurity = $quiz->browsersecurity ?? '-';
+    $quiz->delay1 = $quiz->delay1 ?? 0;
+    $quiz->delay2 = $quiz->delay2 ?? 0;
+    $quiz->showuserpicture = $quiz->showuserpicture ?? 0;
+    $quiz->showblocks = $quiz->showblocks ?? 0;
+    $quiz->completionattemptsexhausted = $quiz->completionattemptsexhausted ?? 0;
+    $quiz->completionminattempts = $quiz->completionminattempts ?? 0;
+    $quiz->allowofflineattempts = $quiz->allowofflineattempts ?? 0;
+    $quiz->precreateattempts = $quiz->precreateattempts ?? 0;
+    $quiz->feedbackboundarycount = $quiz->feedbackboundarycount ?? 0;
+    $quiz->feedbacktext = $quiz->feedbacktext ?? [
+        ['text' => '', 'format' => FORMAT_HTML, 'itemid' => 0],
+    ];
+    $quiz->feedbackboundaries = $quiz->feedbackboundaries ?? [0 => ''];
+    return $quiz;
+}
+
+function repair_course_gradebook_for_k6(int $courseid): void {
+    global $DB;
+
+    $rootcats = array_values($DB->get_records('grade_categories', [
+        'courseid' => $courseid,
+        'parent' => null,
+    ], 'id ASC'));
+
+    if (count($rootcats) > 1) {
+        $keepcat = $rootcats[0];
+        for ($i = 1; $i < count($rootcats); $i++) {
+            $cat = $rootcats[$i];
+            $DB->delete_records('grade_grades', [
+                'itemid' => $DB->get_field('grade_items', 'id', [
+                    'courseid' => $courseid,
+                    'itemtype' => 'course',
+                    'iteminstance' => $cat->id,
+                ], IGNORE_MISSING),
+            ]);
+            $DB->delete_records('grade_items', [
+                'courseid' => $courseid,
+                'itemtype' => 'course',
+                'iteminstance' => $cat->id,
+            ]);
+            $DB->delete_records('grade_categories', ['id' => $cat->id]);
+            echo "REPAIR=deleted_duplicate_grade_category:{$cat->id}\n";
+        }
+
+        $courseitems = array_values($DB->get_records('grade_items', [
+            'courseid' => $courseid,
+            'itemtype' => 'course',
+        ], 'id ASC'));
+        if (count($courseitems) > 1) {
+            $keepitem = null;
+            foreach ($courseitems as $item) {
+                if ((int)$item->iteminstance === (int)$keepcat->id) {
+                    $keepitem = $item;
+                    break;
+                }
+            }
+            $keepitem = $keepitem ?: $courseitems[0];
+            foreach ($courseitems as $item) {
+                if ((int)$item->id === (int)$keepitem->id) {
+                    continue;
+                }
+                $DB->delete_records('grade_grades', ['itemid' => $item->id]);
+                $DB->delete_records('grade_items', ['id' => $item->id]);
+                echo "REPAIR=deleted_duplicate_course_grade_item:{$item->id}\n";
+            }
+            if ((int)$keepitem->iteminstance !== (int)$keepcat->id) {
+                $DB->set_field('grade_items', 'iteminstance', $keepcat->id, ['id' => $keepitem->id]);
+            }
+        }
+    }
+
+    grade_category::fetch_course_category($courseid);
+}
 
 if ($usercount < 1) {
     fwrite(STDERR, "usercount must be >= 1\n");
@@ -116,6 +233,7 @@ if (!$course) {
     ]);
     echo "Created course: {$course->id}\n";
 }
+repair_course_gradebook_for_k6((int)$course->id);
 
 echo "STEP=users\n";
 $studentroleid = (int)$DB->get_field('role', 'id', ['shortname' => 'student'], IGNORE_MISSING);
@@ -202,109 +320,65 @@ for ($i = 1; $i <= $teachercount; $i++) {
 }
 
 echo "STEP=quiz\n";
+$stalequizcms = $DB->get_records_sql("
+    SELECT cm.id, cm.instance, q.name
+      FROM {course_modules} cm
+      JOIN {modules} m ON m.id = cm.module
+ LEFT JOIN {quiz} q ON q.id = cm.instance
+     WHERE cm.course = :courseid
+       AND m.name = 'quiz'
+       AND (q.id IS NULL OR q.name <> :quizname)
+     ORDER BY cm.id ASC
+", ['courseid' => $course->id, 'quizname' => $quizname]);
+foreach ($stalequizcms as $stalequizcm) {
+    course_delete_module((int)$stalequizcm->id);
+    echo "REPAIR=deleted_stale_quiz_cmid:{$stalequizcm->id}\n";
+}
+
 $quizcm = $DB->get_record_sql("
     SELECT cm.id, cm.instance
       FROM {course_modules} cm
       JOIN {modules} m ON m.id = cm.module
+      JOIN {quiz} q ON q.id = cm.instance
      WHERE cm.course = :courseid
        AND m.name = 'quiz'
+       AND q.name = :quizname
+     ORDER BY cm.id ASC
      LIMIT 1
-", ['courseid' => $course->id]);
+", ['courseid' => $course->id, 'quizname' => $quizname]);
 
 if (!$quizcm) {
-    // Create quiz directly for load-test purpose to avoid delegated transaction
-    // warnings from add_moduleinfo() in read-replica environments.
-    $now = time();
-    $quizid = $DB->insert_record('quiz', (object)[
-        'course' => $course->id,
-        'name' => $quizname,
-        'intro' => 'Quiz toan co ban (2+2, 3+5...)',
-        'introformat' => FORMAT_HTML,
-        'timeopen' => 0,
-        'timeclose' => 0,
-        'timelimit' => 0,
-        'overduehandling' => 'autosubmit',
-        'graceperiod' => 0,
-        'preferredbehaviour' => 'deferredfeedback',
-        'canredoquestions' => 0,
-        'attempts' => 0,
-        'attemptonlast' => 0,
-        'grademethod' => 1,
-        'decimalpoints' => 2,
-        'questiondecimalpoints' => -1,
-        'reviewattempt' => 0,
-        'reviewcorrectness' => 0,
-        'reviewmaxmarks' => 0,
-        'reviewmarks' => 0,
-        'reviewspecificfeedback' => 0,
-        'reviewgeneralfeedback' => 0,
-        'reviewrightanswer' => 0,
-        'reviewoverallfeedback' => 0,
-        'questionsperpage' => 0,
-        'navmethod' => 'free',
-        'shuffleanswers' => 1,
-        'sumgrades' => 0,
-        'grade' => 10,
-        'timecreated' => $now,
-        'timemodified' => $now,
-        'password' => '',
-        'subnet' => '',
-        'browsersecurity' => '-',
-        'delay1' => 0,
-        'delay2' => 0,
-        'showuserpicture' => 0,
-        'showblocks' => 0,
-        'completionattemptsexhausted' => 0,
-        'completionminattempts' => 0,
-        'allowofflineattempts' => 0,
-        'precreateattempts' => 0,
-    ]);
-
-    // Same as quiz_add_instance(): without a row in quiz_sections, new attempts get an empty
-    // layout string and attempt.php throws "No questions found" even when quiz_slots exist.
-    $DB->insert_record('quiz_sections', (object)[
-        'quizid' => $quizid,
-        'firstslot' => 1,
-        'heading' => '',
-        'shufflequestions' => 0,
-    ]);
-
-    $section = $DB->get_record('course_sections', ['course' => $course->id, 'section' => 0], '*', MUST_EXIST);
     $moduleid = $DB->get_field('modules', 'id', ['name' => 'quiz'], MUST_EXIST);
-    $cmid = $DB->insert_record('course_modules', (object)[
-        'course' => $course->id,
+    $moduleinfo = k6_quiz_defaults((object)[
+        'modulename' => 'quiz',
         'module' => $moduleid,
-        'instance' => $quizid,
-        'section' => $section->id,
-        'idnumber' => '',
-        'added' => $now,
-        'score' => 0,
-        'indent' => 0,
+        'section' => 0,
+        'name' => $quizname,
         'visible' => 1,
         'visibleoncoursepage' => 1,
-        'visibleold' => 1,
         'groupmode' => 0,
         'groupingid' => 0,
+        'cmidnumber' => '',
         'completion' => 0,
+        'completionpassgrade' => 0,
         'completiongradeitemnumber' => null,
         'completionview' => 0,
         'completionexpected' => 0,
         'showdescription' => 0,
-        'availability' => null,
-        'deletioninprogress' => 0,
         'downloadcontent' => 1,
+        'availabilityconditionsjson' => '',
         'lang' => '',
     ]);
-    $sequence = trim((string)$section->sequence);
-    $newsequence = $sequence === '' ? (string)$cmid : ($sequence . ',' . $cmid);
-    $DB->set_field('course_sections', 'sequence', $newsequence, ['id' => $section->id]);
-
-    $quizcm = (object)['id' => $cmid, 'instance' => $quizid];
+    $created = add_moduleinfo($moduleinfo, $course);
+    $quizcm = (object)['id' => $created->coursemodule, 'instance' => $created->instance];
     echo "Created quiz cmid: {$quizcm->id}\n";
 }
 
 echo "STEP=questions\n";
 $quiz = $DB->get_record('quiz', ['id' => $quizcm->instance], '*', MUST_EXIST);
+$quiz->coursemodule = $quizcm->id;
+$quiz = k6_quiz_defaults($quiz);
+quiz_grade_item_update($quiz);
 if (!$DB->record_exists('quiz_sections', ['quizid' => $quiz->id])) {
     $DB->insert_record('quiz_sections', (object)[
         'quizid' => $quiz->id,
@@ -477,7 +551,7 @@ fi
 
 echo "Done."
 echo "Run k6 (students only):"
-echo "  PROFILE=auth_quiz QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} ./run-stress-test.sh"
+echo "  PROFILE=auth_quiz QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} ./0_stress_testing.sh"
 echo ""
 echo "Run k6 (mixed students + teachers):"
-echo "  PROFILE=mixed_roles QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} COURSE_PATH=/course/view.php?id=${COURSE_ID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} TEACHER_USER_PREFIX=${TEACHER_PREFIX} TEACHER_USER_COUNT=${TEACHER_COUNT} TEACHER_USER_PASSWORD=${TEACHER_PASSWORD} TEACHER_RATIO_PCT=20 ./run-stress-test.sh"
+echo "  PROFILE=mixed_roles QUIZ_PATH=/mod/quiz/view.php?id=${QUIZ_CMID} COURSE_PATH=/course/view.php?id=${COURSE_ID} AUTH_USER_PREFIX=${USER_PREFIX} AUTH_USER_COUNT=${USER_COUNT} AUTH_USER_PASSWORD=${USER_PASSWORD} TEACHER_USER_PREFIX=${TEACHER_PREFIX} TEACHER_USER_COUNT=${TEACHER_COUNT} TEACHER_USER_PASSWORD=${TEACHER_PASSWORD} TEACHER_RATIO_PCT=20 ./0_stress_testing.sh"
