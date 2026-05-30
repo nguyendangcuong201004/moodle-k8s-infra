@@ -11,14 +11,15 @@ cd moodle-k8s-infra/stress-test
 ./seed-auth-quiz-data.sh
 ```
 
-Common env overrides: `NAMESPACE`, `USER_PREFIX`, `USER_COUNT` (default **500** students), `TEACHER_COUNT` (default **100**), `USER_PASSWORD`, `COURSE_SHORTNAME`, `COURSE_FULLNAME`, `QUIZ_NAME`. The script prints **`COURSE_ID`**, **`QUIZ_CMID`**, and a sample `0_stress_testing` line. Re-run seed after raising counts so new accounts exist in Moodle.
+Common env overrides: `NAMESPACE`, `USER_PREFIX`, `USER_COUNT` (default **500** students), `TEACHER_COUNT` (default **100**), `USER_PASSWORD`, `COURSE_SHORTNAME`, `COURSE_FULLNAME`, `QUIZ_NAME`, `ANNOUNCEMENT_SUBJECT`. The script prints **`COURSE_ID`**, **`QUIZ_CMID`**, **`ANNOUNCEMENT_CMID`**, and a sample `0_stress_testing` line. Re-run seed after raising counts so new accounts exist in Moodle.
 
 Set in **`stress-params.env`** (or export):
 
 - `COURSE_PATH=/course/view.php?id=<COURSE_ID>`
 - `QUIZ_PATH=/mod/quiz/view.php?id=<QUIZ_CMID>`
+- `ANNOUNCEMENT_PATH=/mod/forum/view.php?id=<ANNOUNCEMENT_CMID>`
 
-(IDs must match the seeded course/quiz.)
+(IDs must match the seeded course/quiz/announcement.)
 
 ## 2. Run
 
