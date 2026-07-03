@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Moodle request path with two NGINX layers</title>
+  <desc id="desc">Architecture diagram showing traffic from client browser through Cloudflare, DigitalOcean Load Balancer, NGINX Ingress Controller, Kubernetes Service, and per-pod NGINX sidecar forwarding to PHP-FPM over FastCGI.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 34px; font-weight: 800; fill: #0f2d8f; }
+      .subtitle { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 16px; font-weight: 500; fill: #475569; }
+      .label { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #0f172a; }
+      .small { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 14px; font-weight: 500; fill: #475569; }
+      .tiny { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #64748b; }
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .edge { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.5; rx: 18; }
+      .cloudflare { fill: #fff7ed; stroke: #f97316; stroke-width: 2.5; rx: 18; }
+      .do { fill: #eff6ff; stroke: #0284c7; stroke-width: 2.5; rx: 18; }
+      .k8s { fill: #f8fafc; stroke: #334155; stroke-width: 2; rx: 22; }
+      .nginxOuter { fill: #ecfeff; stroke: #0891b2; stroke-width: 2.5; rx: 18; }
+      .service { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.5; rx: 18; }
+      .pod { fill: #ffffff; stroke: #64748b; stroke-width: 2; rx: 18; }
+      .nginxInner { fill: #fefce8; stroke: #ca8a04; stroke-width: 2.5; rx: 14; }
+      .fpm { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2.5; rx: 14; }
+      .arrow { stroke: #f97316; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .arrowBlue { stroke: #2563eb; stroke-width: 3; fill: none; marker-end: url(#arrowBlue); }
+      .fastcgi { stroke: #7c3aed; stroke-width: 2.5; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrowPurple); }
+      .note { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1.5; rx: 14; }
+      .badge { fill: #dbeafe; stroke: #2563eb; stroke-width: 1.5; rx: 12; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f97316"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="1200" height="760"/>
+
+  <text x="48" y="58" class="title">Moodle Traffic Path with Two NGINX Layers</text>
+  <text x="50" y="88" class="subtitle">Accurate request flow for the current Kubernetes + PHP-FPM deployment</text>
+
+  <!-- Public edge -->
+  <rect x="48" y="118" width="316" height="90" class="edge" filter="url(#shadow)"/>
+  <text x="206" y="151" text-anchor="middle" class="label">Client Browser</text>
+  <text x="206" y="177" text-anchor="middle" class="small">HTTPS request to lms.ndcuong.online</text>
+
+  <path class="arrow" d="M364 163 H430"/>
+
+  <rect x="430" y="118" width="330" height="90" class="cloudflare" filter="url(#shadow)"/>
+  <text x="595" y="148" text-anchor="middle" class="label">Cloudflare Proxy</text>
+  <text x="595" y="174" text-anchor="middle" class="small">Proxied DNS record</text>
+  <text x="595" y="194" text-anchor="middle" class="tiny">optional edge protection / caching policy</text>
+
+  <path class="arrow" d="M760 163 H826"/>
+
+  <rect x="826" y="118" width="326" height="90" class="do" filter="url(#shadow)"/>
+  <text x="989" y="148" text-anchor="middle" class="label">DigitalOcean Load Balancer</text>
+  <text x="989" y="174" text-anchor="middle" class="small">Kubernetes Service type=LoadBalancer</text>
+  <text x="989" y="194" text-anchor="middle" class="tiny">routes traffic to worker nodes</text>
+
+  <!-- Cluster boundary -->
+  <rect x="64" y="248" width="1088" height="660" class="k8s"/>
+  <text x="86" y="286" class="label">DigitalOcean Kubernetes Cluster</text>
+  <text x="86" y="310" class="small">Ingress and backend Services route traffic to Moodle web Pod replicas</text>
+
+  <path class="arrow" d="M989 208 V258"/>
+
+  <rect x="120" y="338" width="386" height="102" class="nginxOuter" filter="url(#shadow)"/>
+  <text x="313" y="370" text-anchor="middle" class="label">NGINX Ingress Controller</text>
+  <text x="313" y="396" text-anchor="middle" class="small">External HTTP routing for the cluster</text>
+  <text x="313" y="420" text-anchor="middle" class="tiny">load balancing method: least_conn</text>
+  <rect x="138" y="352" width="102" height="24" class="badge"/>
+  <text x="189" y="369" text-anchor="middle" class="tiny">NGINX layer 1</text>
+
+  <path class="arrowBlue" d="M506 389 H596"/>
+
+  <rect x="596" y="338" width="368" height="102" class="service" filter="url(#shadow)"/>
+  <text x="780" y="370" text-anchor="middle" class="label">Kubernetes Ingress + Service</text>
+  <text x="780" y="396" text-anchor="middle" class="small">Ingress backend: Service moodle</text>
+  <text x="780" y="420" text-anchor="middle" class="tiny">Service type=ClusterIP, targetPort=http</text>
+
+  <path class="arrowBlue" d="M780 440 V482"/>
+
+  <!-- Moodle pods -->
+  <rect x="94" y="502" width="320" height="188" class="pod" filter="url(#shadow)"/>
+  <text x="254" y="532" text-anchor="middle" class="label">Moodle Pod replica</text>
+  <text x="254" y="554" text-anchor="middle" class="tiny">shared Pod network namespace</text>
+  <rect x="118" y="576" width="132" height="74" class="nginxInner"/>
+  <text x="184" y="604" text-anchor="middle" class="small">NGINX sidecar</text>
+  <text x="184" y="626" text-anchor="middle" class="tiny">HTTP :80</text>
+  <rect x="274" y="576" width="132" height="74" class="fpm"/>
+  <text x="340" y="604" text-anchor="middle" class="small">PHP-FPM</text>
+  <text x="340" y="626" text-anchor="middle" class="tiny">Moodle app :9000</text>
+  <path class="fastcgi" d="M250 613 H274"/>
+  <text x="262" y="575" text-anchor="middle" class="tiny">FastCGI</text>
+  <rect x="118" y="512" width="102" height="24" class="badge"/>
+  <text x="169" y="529" text-anchor="middle" class="tiny">NGINX layer 2</text>
+
+  <rect x="460" y="502" width="320" height="188" class="pod" filter="url(#shadow)"/>
+  <text x="620" y="532" text-anchor="middle" class="label">Moodle Pod replica</text>
+  <text x="620" y="554" text-anchor="middle" class="tiny">same containers, separate replica</text>
+  <rect x="484" y="576" width="132" height="74" class="nginxInner"/>
+  <text x="550" y="604" text-anchor="middle" class="small">NGINX sidecar</text>
+  <text x="550" y="626" text-anchor="middle" class="tiny">HTTP :80</text>
+  <rect x="640" y="576" width="132" height="74" class="fpm"/>
+  <text x="706" y="604" text-anchor="middle" class="small">PHP-FPM</text>
+  <text x="706" y="626" text-anchor="middle" class="tiny">Moodle app :9000</text>
+  <path class="fastcgi" d="M616 613 H640"/>
+
+  <rect x="826" y="502" width="320" height="188" class="pod" filter="url(#shadow)"/>
+  <text x="986" y="532" text-anchor="middle" class="label">Moodle Pod replica</text>
+  <text x="986" y="554" text-anchor="middle" class="tiny">scales with HPA: 3-6 replicas</text>
+  <rect x="850" y="576" width="132" height="74" class="nginxInner"/>
+  <text x="916" y="604" text-anchor="middle" class="small">NGINX sidecar</text>
+  <text x="916" y="626" text-anchor="middle" class="tiny">HTTP :80</text>
+  <rect x="1006" y="576" width="132" height="74" class="fpm"/>
+  <text x="1072" y="604" text-anchor="middle" class="small">PHP-FPM</text>
+  <text x="1072" y="626" text-anchor="middle" class="tiny">Moodle app :9000</text>
+  <path class="fastcgi" d="M982 613 H1006"/>
+
+  <!-- fanout arrows from service to pods -->
+  <path class="arrowBlue" d="M780 482 C780 468 254 468 254 502"/>
+  <path class="arrowBlue" d="M780 482 C780 468 620 468 620 502"/>
+  <path class="arrowBlue" d="M780 482 C780 468 986 468 986 502"/>
+
+  <!-- concise notes -->
+  <rect x="76" y="704" width="1076" height="48" class="note"/>
+  <text x="96" y="734" class="small">Key point: the outer NGINX Ingress routes traffic across Pods; each Moodle Pod has its own NGINX sidecar because the application image runs PHP-FPM, not Apache.</text>
+</svg>

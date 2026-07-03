@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-labelledby="title desc">
+  <title id="title">Current Moodle distributed file storage</title>
+  <desc id="desc">A compact diagram of the current Moodle file storage: Moodle web pods mount a ReadWriteMany PersistentVolumeClaim named moodle-data at /var/www/moodledata; the PVC uses a Longhorn StorageClass, Longhorn creates an RWX volume exported by a share-manager NFSv4 pod, and volume data is replicated across worker nodes. PostgreSQL data is stored separately in DigitalOcean Managed PostgreSQL.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 28px; font-weight: 800; fill: #0f2d8f; }
+      .section { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 13px; font-weight: 800; fill: #334155; letter-spacing: .45px; }
+      .label { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 17px; font-weight: 800; fill: #0f172a; }
+      .small { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 12px; font-weight: 650; fill: #475569; }
+      .tiny { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 10.5px; font-weight: 650; fill: #64748b; }
+      .lane { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .pod { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.4; rx: 14; }
+      .pvc { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.5; rx: 14; }
+      .sc { fill: #fff7ed; stroke: #f97316; stroke-width: 2.5; rx: 14; }
+      .lh { fill: #ecfeff; stroke: #0891b2; stroke-width: 2.5; rx: 14; }
+      .share { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2.4; rx: 14; }
+      .node { fill: #ffffff; stroke: #64748b; stroke-width: 2; rx: 12; }
+      .replica { fill: #fefce8; stroke: #ca8a04; stroke-width: 2; rx: 10; }
+      .db { fill: #fee2e2; stroke: #dc2626; stroke-width: 2.2; rx: 12; }
+      .note { fill: #f1f5f9; stroke: #94a3b8; stroke-width: 1.8; rx: 12; }
+      .arrow { stroke: #0f2d8f; stroke-width: 3; fill: none; marker-end: url(#arrowBlue); }
+      .arrowGreen { stroke: #16a34a; stroke-width: 3; fill: none; marker-end: url(#arrowGreen); }
+      .arrowOrange { stroke: #f97316; stroke-width: 3; fill: none; marker-end: url(#arrowOrange); }
+      .arrowPurple { stroke: #7c3aed; stroke-width: 3; fill: none; marker-end: url(#arrowPurple); }
+      .arrowCyan { stroke: #0891b2; stroke-width: 3; fill: none; marker-end: url(#arrowCyan); }
+      .dash { stroke: #64748b; stroke-width: 2.2; stroke-dasharray: 7 6; fill: none; marker-end: url(#arrowSlate); }
+    </style>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f2d8f"/></marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f97316"/></marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+    <marker id="arrowCyan" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0891b2"/></marker>
+    <marker id="arrowSlate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"/></filter>
+  </defs>
+
+  <rect class="bg" width="1120" height="640"/>
+  <text x="560" y="42" text-anchor="middle" class="title">Current Distributed File Storage</text>
+
+  <rect x="42" y="70" width="1036" height="170" class="lane"/>
+  <text x="66" y="98" class="section">MOODLE APPLICATION PODS</text>
+
+  <rect x="90" y="126" width="180" height="72" class="pod" filter="url(#shadow)"/>
+  <text x="180" y="153" text-anchor="middle" class="label">Web Pod</text>
+  <text x="180" y="176" text-anchor="middle" class="small">/var/www/moodledata</text>
+
+  <rect x="320" y="126" width="180" height="72" class="pod" filter="url(#shadow)"/>
+  <text x="410" y="153" text-anchor="middle" class="label">Web Pod</text>
+  <text x="410" y="176" text-anchor="middle" class="small">/var/www/moodledata</text>
+
+  <rect x="550" y="126" width="180" height="72" class="pod" filter="url(#shadow)"/>
+  <text x="640" y="153" text-anchor="middle" class="label">Web Pod</text>
+  <text x="640" y="176" text-anchor="middle" class="small">/var/www/moodledata</text>
+
+  <rect x="805" y="116" width="218" height="92" class="db" filter="url(#shadow)"/>
+  <text x="914" y="146" text-anchor="middle" class="label">PostgreSQL</text>
+  <text x="914" y="169" text-anchor="middle" class="small">Managed Database</text>
+  <text x="914" y="190" text-anchor="middle" class="tiny">not stored in Longhorn</text>
+
+  <rect x="42" y="260" width="1036" height="128" class="lane"/>
+  <text x="66" y="288" class="section">KUBERNETES STORAGE API</text>
+
+  <rect x="164" y="306" width="292" height="58" class="pvc" filter="url(#shadow)"/>
+  <text x="310" y="329" text-anchor="middle" class="label">PVC: moodle-data</text>
+  <text x="310" y="350" text-anchor="middle" class="small">accessMode: ReadWriteMany</text>
+
+  <path class="arrowOrange" d="M456 335 H520"/>
+
+  <rect x="520" y="306" width="318" height="58" class="sc" filter="url(#shadow)"/>
+  <text x="679" y="329" text-anchor="middle" class="label">StorageClass</text>
+  <text x="679" y="350" text-anchor="middle" class="small">longhorn / longhorn-staging-r1</text>
+
+  <rect x="42" y="410" width="1036" height="204" class="lane"/>
+  <text x="66" y="438" class="section">LONGHORN STORAGE LAYER</text>
+
+  <rect x="88" y="466" width="230" height="70" class="lh" filter="url(#shadow)"/>
+  <text x="203" y="492" text-anchor="middle" class="label">Longhorn CSI</text>
+  <text x="203" y="516" text-anchor="middle" class="small">dynamic PV provisioning</text>
+
+  <path class="arrowCyan" d="M318 501 H386"/>
+
+  <rect x="386" y="456" width="250" height="90" class="share" filter="url(#shadow)"/>
+  <text x="511" y="485" text-anchor="middle" class="label">RWX Share Manager</text>
+  <text x="511" y="508" text-anchor="middle" class="small">NFSv4 export inside cluster</text>
+  <text x="511" y="528" text-anchor="middle" class="tiny">one per active RWX volume</text>
+
+  <path class="arrowPurple" d="M636 501 H696"/>
+
+  <rect x="696" y="440" width="332" height="132" class="node" filter="url(#shadow)"/>
+  <text x="862" y="466" text-anchor="middle" class="label">Longhorn Volume Replicas</text>
+
+  <rect x="724" y="492" width="78" height="44" class="replica"/>
+  <text x="763" y="519" text-anchor="middle" class="tiny">Node A</text>
+  <rect x="823" y="492" width="78" height="44" class="replica"/>
+  <text x="862" y="519" text-anchor="middle" class="tiny">Node B</text>
+  <rect x="922" y="492" width="78" height="44" class="replica"/>
+  <text x="961" y="519" text-anchor="middle" class="tiny">Node C</text>
+
+  <text x="862" y="556" text-anchor="middle" class="small">replicated across worker-node disks</text>
+
+  <path class="arrowGreen" d="M180 198 V262 H310 V306"/>
+  <path class="arrowGreen" d="M410 198 V262 H310 V306"/>
+  <path class="arrowGreen" d="M640 198 V262 H310 V306"/>
+  <path class="arrowOrange" d="M679 364 V448 H318 V466"/>
+
+  <rect x="90" y="578" width="938" height="34" class="note"/>
+  <text x="559" y="600" text-anchor="middle" class="tiny">Use case in this project: shared Moodle files only. Database data stays in DigitalOcean Managed PostgreSQL.</text>
+</svg>

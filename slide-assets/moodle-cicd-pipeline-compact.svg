@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="680" viewBox="0 0 1320 680" role="img" aria-labelledby="title desc">
+  <title id="title">Current Moodle CI/CD pipeline</title>
+  <desc id="desc">Current CI/CD pipeline for Moodle: GitHub Actions builds the Moodle Docker image, publishes it to Docker Hub, automatically deploys develop commits to staging, and manually deploys a selected image tag to production using doctl and kubectl.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 30px; font-weight: 800; fill: #0f2d8f; }
+      .lane { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .laneTitle { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 14px; font-weight: 800; fill: #334155; letter-spacing: .4px; }
+      .num { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 19px; font-weight: 900; fill: #ffffff; }
+      .label { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 18px; font-weight: 800; fill: #0f172a; }
+      .small { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 12.5px; font-weight: 650; fill: #475569; }
+      .tiny { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 10.5px; font-weight: 650; fill: #64748b; }
+      .stepBlue { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.5; rx: 16; }
+      .stepGreen { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.5; rx: 16; }
+      .stepOrange { fill: #fff7ed; stroke: #f97316; stroke-width: 2.5; rx: 16; }
+      .stepPurple { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2.5; rx: 16; }
+      .stepSlate { fill: #ffffff; stroke: #64748b; stroke-width: 2; rx: 14; }
+      .hub { fill: #ecfeff; stroke: #0891b2; stroke-width: 2.4; rx: 14; }
+      .cluster { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2.4; rx: 14; }
+      .repo { fill: #f8fafc; stroke: #0f172a; stroke-width: 2.2; rx: 12; }
+      .note { fill: #fefce8; stroke: #ca8a04; stroke-width: 2; rx: 12; }
+      .badgeBlue { fill: #2563eb; }
+      .badgeGreen { fill: #16a34a; }
+      .badgeOrange { fill: #f97316; }
+      .badgePurple { fill: #7c3aed; }
+      .arrow { stroke: #0f2d8f; stroke-width: 3.2; fill: none; marker-end: url(#arrow); }
+      .arrowGreen { stroke: #16a34a; stroke-width: 3; fill: none; marker-end: url(#arrowGreen); }
+      .arrowPurple { stroke: #7c3aed; stroke-width: 3; fill: none; marker-end: url(#arrowPurple); }
+      .arrowDash { stroke: #64748b; stroke-width: 2.5; stroke-dasharray: 7 6; fill: none; marker-end: url(#arrowSlate); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f2d8f"/></marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+    <marker id="arrowSlate" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"/></filter>
+  </defs>
+
+  <rect class="bg" width="1320" height="680"/>
+  <text x="660" y="48" text-anchor="middle" class="title">Current CI/CD Implementation</text>
+
+  <rect x="48" y="76" width="1224" height="440" class="lane"/>
+  <text x="72" y="104" class="laneTitle">APPLICATION DELIVERY: moodle-k8s-project / .github/workflows/cicd.yml</text>
+
+  <rect x="78" y="136" width="248" height="168" class="stepBlue" filter="url(#shadow)"/>
+  <circle cx="108" cy="164" r="22" class="badgeBlue"/>
+  <text x="108" y="171" text-anchor="middle" class="num">1</text>
+  <text x="202" y="162" text-anchor="middle" class="label">Source Trigger</text>
+  <text x="202" y="191" text-anchor="middle" class="small">GitHub Actions</text>
+  <text x="202" y="216" text-anchor="middle" class="small">push to develop</text>
+  <text x="202" y="237" text-anchor="middle" class="small">push tag v*</text>
+  <text x="202" y="258" text-anchor="middle" class="small">workflow_dispatch</text>
+  <text x="202" y="282" text-anchor="middle" class="tiny">production deploy is manual</text>
+
+  <path class="arrow" d="M326 220 H374"/>
+
+  <rect x="374" y="136" width="248" height="168" class="stepGreen" filter="url(#shadow)"/>
+  <circle cx="404" cy="164" r="22" class="badgeGreen"/>
+  <text x="404" y="171" text-anchor="middle" class="num">2</text>
+  <text x="498" y="162" text-anchor="middle" class="label">Build Image</text>
+  <text x="498" y="191" text-anchor="middle" class="small">docker/build-push-action</text>
+  <text x="498" y="216" text-anchor="middle" class="small">context: repository root</text>
+  <text x="498" y="237" text-anchor="middle" class="small">Dockerfile: php-fpm image</text>
+  <text x="498" y="258" text-anchor="middle" class="small">labels from metadata-action</text>
+  <text x="498" y="282" text-anchor="middle" class="tiny">runs only on push events</text>
+
+  <path class="arrow" d="M622 220 H670"/>
+
+  <rect x="670" y="136" width="248" height="168" class="hub" filter="url(#shadow)"/>
+  <circle cx="700" cy="164" r="22" class="badgeGreen"/>
+  <text x="700" y="171" text-anchor="middle" class="num">3</text>
+  <text x="794" y="162" text-anchor="middle" class="label">Publish Artifact</text>
+  <text x="794" y="191" text-anchor="middle" class="small">Docker Hub repository</text>
+  <text x="794" y="216" text-anchor="middle" class="small">ndcuongdevops/moodle-lms</text>
+  <text x="794" y="239" text-anchor="middle" class="small">tags: sha-&lt;short&gt;, staging, v*</text>
+  <text x="794" y="263" text-anchor="middle" class="tiny">deploys reference immutable sha tags</text>
+
+  <path class="arrowGreen" d="M794 304 C794 334 765 350 720 350 H220 C176 350 152 374 152 408"/>
+  <text x="560" y="338" text-anchor="middle" class="tiny">automatic when branch = develop</text>
+
+  <rect x="78" y="398" width="556" height="82" class="stepOrange" filter="url(#shadow)"/>
+  <text x="356" y="425" text-anchor="middle" class="label">Staging Deployment</text>
+  <text x="356" y="449" text-anchor="middle" class="small">doctl kubeconfig save DO_STAGING_CLUSTER -> kubectl patch deployment/moodle</text>
+  <text x="356" y="468" text-anchor="middle" class="tiny">updates moodle container and initContainers, scales to 1 replica, waits for rollout, verifies pods/service</text>
+
+  <path class="arrowPurple" d="M918 220 H966"/>
+
+  <rect x="966" y="136" width="246" height="168" class="stepPurple" filter="url(#shadow)"/>
+  <circle cx="996" cy="164" r="22" class="badgePurple"/>
+  <text x="996" y="171" text-anchor="middle" class="num">4</text>
+  <text x="1089" y="162" text-anchor="middle" class="label">Production Deploy</text>
+  <text x="1089" y="191" text-anchor="middle" class="small">manual workflow_dispatch</text>
+  <text x="1089" y="216" text-anchor="middle" class="small">input: image_tag</text>
+  <text x="1089" y="237" text-anchor="middle" class="small">doctl kubeconfig save</text>
+  <text x="1089" y="258" text-anchor="middle" class="small">kubectl patch + rollout status</text>
+  <text x="1089" y="282" text-anchor="middle" class="tiny">rolling update, timeout 1200s</text>
+
+  <path class="arrowPurple" d="M1089 304 C1089 352 1000 398 850 398 H702"/>
+  <text x="1014" y="338" text-anchor="middle" class="tiny">selected Docker tag</text>
+
+  <rect x="702" y="398" width="500" height="82" class="cluster" filter="url(#shadow)"/>
+  <text x="952" y="425" text-anchor="middle" class="label">Kubernetes Runtime</text>
+  <text x="952" y="449" text-anchor="middle" class="small">namespace: moodle, Deployment: moodle</text>
+  <text x="952" y="468" text-anchor="middle" class="tiny">new ReplicaSet is rolled out; rollback can redeploy a previous sha-* Docker tag</text>
+
+  <rect x="48" y="544" width="1224" height="118" class="lane"/>
+  <text x="72" y="572" class="laneTitle">INFRASTRUCTURE VALIDATION: moodle-k8s-infra / .github/workflows/validate.yml</text>
+
+  <rect x="88" y="594" width="198" height="44" class="stepSlate" filter="url(#shadow)"/>
+  <text x="187" y="621" text-anchor="middle" class="small">Terraform fmt / validate</text>
+
+  <path class="arrowDash" d="M286 616 H338"/>
+
+  <rect x="338" y="594" width="178" height="44" class="stepSlate" filter="url(#shadow)"/>
+  <text x="427" y="621" text-anchor="middle" class="small">Terraform plan on PR</text>
+
+  <path class="arrowDash" d="M516 616 H568"/>
+
+  <rect x="568" y="594" width="188" height="44" class="stepSlate" filter="url(#shadow)"/>
+  <text x="662" y="621" text-anchor="middle" class="small">Helm lint / template</text>
+
+  <path class="arrowDash" d="M756 616 H808"/>
+
+  <rect x="808" y="594" width="188" height="44" class="stepSlate" filter="url(#shadow)"/>
+  <text x="902" y="621" text-anchor="middle" class="small">tfsec + kubesec scan</text>
+
+  <path class="arrowDash" d="M996 616 H1048"/>
+
+  <rect x="1048" y="594" width="168" height="44" class="stepSlate" filter="url(#shadow)"/>
+  <text x="1132" y="621" text-anchor="middle" class="small">ShellCheck scripts</text>
+
+  <rect x="78" y="514" width="1142" height="30" class="note"/>
+  <text x="649" y="534" text-anchor="middle" class="tiny">Provisioning is separate: digitalocean/setup.sh creates DOKS, Managed PostgreSQL, Ingress, Helm release; CI/CD updates the Moodle image afterward.</text>
+</svg>

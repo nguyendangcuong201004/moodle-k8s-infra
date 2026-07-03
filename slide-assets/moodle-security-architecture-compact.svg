@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="700" viewBox="0 0 920 700" role="img" aria-labelledby="title desc">
+  <title id="title">Current Moodle security architecture</title>
+  <desc id="desc">Security architecture diagram for the current Moodle deployment: Cloudflare proxied DNS, DigitalOcean Load Balancer, NGINX Ingress Controller, ClusterIP Service, Moodle web Pod with NGINX sidecar, PHP-FPM and PgBouncer, Kubernetes Secret, Longhorn PVC and DigitalOcean Managed PostgreSQL private host.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 24px; font-weight: 800; fill: #0f2d8f; }
+      .section { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 13px; font-weight: 800; fill: #334155; letter-spacing: .5px; }
+      .label { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 16px; font-weight: 800; fill: #0f172a; }
+      .small { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 12px; font-weight: 650; fill: #475569; }
+      .tiny { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 10.5px; font-weight: 650; fill: #64748b; }
+      .layer { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .client { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.3; rx: 14; }
+      .cf { fill: #fff7ed; stroke: #f97316; stroke-width: 2.4; rx: 14; }
+      .do { fill: #ecfeff; stroke: #0891b2; stroke-width: 2.4; rx: 14; }
+      .ing { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.4; rx: 14; }
+      .svc { fill: #eef2ff; stroke: #4f46e5; stroke-width: 2.4; rx: 14; }
+      .pod { fill: #ffffff; stroke: #64748b; stroke-width: 2.2; rx: 16; }
+      .nginx { fill: #fefce8; stroke: #ca8a04; stroke-width: 2.2; rx: 12; }
+      .fpm { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2.2; rx: 12; }
+      .pgb { fill: #f0f9ff; stroke: #0284c7; stroke-width: 2.2; rx: 12; }
+      .secret { fill: #fdf2f8; stroke: #db2777; stroke-width: 2.2; rx: 12; }
+      .db { fill: #fee2e2; stroke: #dc2626; stroke-width: 2.4; rx: 14; }
+      .storage { fill: #ecfdf5; stroke: #059669; stroke-width: 2.2; rx: 14; }
+      .note { fill: #fff1f2; stroke: #e11d48; stroke-width: 2; rx: 14; }
+      .arrow { stroke: #2563eb; stroke-width: 2.8; fill: none; marker-end: url(#arrowBlue); }
+      .arrowOrange { stroke: #f97316; stroke-width: 2.8; fill: none; marker-end: url(#arrowOrange); }
+      .arrowGreen { stroke: #16a34a; stroke-width: 2.8; fill: none; marker-end: url(#arrowGreen); }
+      .arrowPurple { stroke: #7c3aed; stroke-width: 2.6; fill: none; marker-end: url(#arrowPurple); }
+      .arrowDb { stroke: #dc2626; stroke-width: 2.8; fill: none; marker-end: url(#arrowRed); }
+      .arrowStorage { stroke: #059669; stroke-width: 2.5; fill: none; marker-end: url(#arrowStorage); }
+      .bypass { stroke: #e11d48; stroke-width: 2.6; stroke-dasharray: 8 7; fill: none; marker-end: url(#arrowRose); }
+      .shadow { filter: url(#shadow); }
+    </style>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="arrowOrange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f97316"/></marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker>
+    <marker id="arrowStorage" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#059669"/></marker>
+    <marker id="arrowRose" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e11d48"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"/></filter>
+  </defs>
+
+  <rect class="bg" width="920" height="700"/>
+  <text x="460" y="38" text-anchor="middle" class="title">Current Security Path for Moodle LMS</text>
+
+  <rect x="44" y="62" width="828" height="124" class="layer"/>
+  <text x="64" y="88" class="section">PUBLIC EDGE</text>
+  <rect x="95" y="108" width="170" height="58" class="client" filter="url(#shadow)"/>
+  <text x="180" y="132" text-anchor="middle" class="label">Client Browser</text>
+  <text x="180" y="152" text-anchor="middle" class="small">HTTPS request</text>
+
+  <path class="arrowOrange" d="M265 137 H318"/>
+
+  <rect x="318" y="100" width="230" height="74" class="cf" filter="url(#shadow)"/>
+  <text x="433" y="126" text-anchor="middle" class="label">Cloudflare Proxy</text>
+  <text x="433" y="146" text-anchor="middle" class="small">Proxied DNS record</text>
+  <text x="433" y="162" text-anchor="middle" class="tiny">edge proxy, TLS, DDoS protection</text>
+
+  <rect x="604" y="100" width="218" height="74" class="cf" filter="url(#shadow)"/>
+  <text x="713" y="126" text-anchor="middle" class="label">ExternalDNS</text>
+  <text x="713" y="146" text-anchor="middle" class="small">Cloudflare provider</text>
+  <text x="713" y="162" text-anchor="middle" class="tiny">--cloudflare-proxied</text>
+  <path class="arrowOrange" d="M604 137 H548"/>
+  <text x="576" y="126" text-anchor="middle" class="tiny">DNS automation</text>
+
+  <path class="arrowOrange" d="M433 174 V214"/>
+
+  <rect x="44" y="210" width="828" height="142" class="layer"/>
+  <text x="64" y="236" class="section">ORIGIN ENTRY POINT</text>
+  <rect x="156" y="252" width="250" height="74" class="do" filter="url(#shadow)"/>
+  <text x="281" y="278" text-anchor="middle" class="label">DigitalOcean Load Balancer</text>
+  <text x="281" y="299" text-anchor="middle" class="small">public Kubernetes entry point</text>
+  <text x="281" y="315" text-anchor="middle" class="tiny">Service type=LoadBalancer</text>
+
+  <path class="arrowGreen" d="M406 289 H472"/>
+
+  <rect x="472" y="252" width="276" height="74" class="ing" filter="url(#shadow)"/>
+  <text x="610" y="277" text-anchor="middle" class="label">NGINX Ingress Controller</text>
+  <text x="610" y="298" text-anchor="middle" class="small">routes configured hostnames</text>
+  <text x="610" y="315" text-anchor="middle" class="tiny">least_conn backend load balancing</text>
+
+  <path class="arrowGreen" d="M610 326 V384"/>
+
+  <rect x="44" y="378" width="828" height="170" class="layer"/>
+  <text x="64" y="404" class="section">KUBERNETES CLUSTER</text>
+  <rect x="105" y="424" width="225" height="64" class="svc" filter="url(#shadow)"/>
+  <text x="217" y="450" text-anchor="middle" class="label">Service: moodle</text>
+  <text x="217" y="470" text-anchor="middle" class="small">ClusterIP, not public</text>
+
+  <path class="arrow" d="M330 456 H376"/>
+
+  <rect x="376" y="400" width="466" height="126" class="pod" filter="url(#shadow)"/>
+  <text x="609" y="426" text-anchor="middle" class="label">Moodle Web Pod replicas</text>
+  <rect x="400" y="450" width="124" height="50" class="nginx"/>
+  <text x="462" y="471" text-anchor="middle" class="small">NGINX sidecar</text>
+  <text x="462" y="488" text-anchor="middle" class="tiny">HTTP :80</text>
+
+  <path class="arrowPurple" d="M524 475 H563"/>
+
+  <rect x="563" y="450" width="112" height="50" class="fpm"/>
+  <text x="619" y="471" text-anchor="middle" class="small">PHP-FPM</text>
+  <text x="619" y="488" text-anchor="middle" class="tiny">:9000</text>
+
+  <path class="arrowDb" d="M675 475 H714"/>
+
+  <rect x="714" y="450" width="108" height="50" class="pgb"/>
+  <text x="768" y="471" text-anchor="middle" class="small">PgBouncer</text>
+  <text x="768" y="488" text-anchor="middle" class="tiny">localhost :6432</text>
+
+  <rect x="105" y="504" width="225" height="28" class="secret"/>
+  <text x="217" y="523" text-anchor="middle" class="tiny">DB password from Kubernetes Secret</text>
+  <path class="arrowPurple" d="M330 518 C380 540 535 538 714 500"/>
+
+  <path class="arrowDb" d="M768 500 V606"/>
+  <path class="arrowStorage" d="M619 500 C610 560 484 570 390 614"/>
+
+  <rect x="44" y="574" width="828" height="104" class="layer"/>
+  <text x="64" y="600" class="section">DATA AND STORAGE</text>
+  <rect x="118" y="614" width="272" height="54" class="storage" filter="url(#shadow)"/>
+  <text x="254" y="636" text-anchor="middle" class="label">Longhorn PVC</text>
+  <text x="254" y="655" text-anchor="middle" class="small">in-cluster moodledata storage</text>
+
+  <rect x="540" y="606" width="312" height="66" class="db" filter="url(#shadow)"/>
+  <text x="696" y="631" text-anchor="middle" class="label">DigitalOcean Managed PostgreSQL</text>
+  <text x="696" y="651" text-anchor="middle" class="small">private host, sslmode=require</text>
+  <text x="696" y="666" text-anchor="middle" class="tiny">app connects through PgBouncer</text>
+
+  <text x="805" y="91" text-anchor="middle" class="tiny" fill="#e11d48">direct origin bypass attempt</text>
+  <path class="bypass" d="M835 92 C902 145 898 230 748 273"/>
+  <rect x="624" y="187" width="244" height="44" class="note"/>
+  <text x="746" y="205" text-anchor="middle" class="tiny">Hardening note: add an origin allowlist</text>
+  <text x="746" y="220" text-anchor="middle" class="tiny">if direct Load Balancer access must be blocked.</text>
+</svg>

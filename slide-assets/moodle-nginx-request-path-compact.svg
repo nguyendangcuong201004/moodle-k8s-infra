@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="720" viewBox="0 0 820 720" role="img" aria-labelledby="title desc">
+  <title id="title">Current Moodle traffic path</title>
+  <desc id="desc">Compact diagram of the current Moodle traffic path: Cloudflare proxied DNS record, DigitalOcean Load Balancer, NGINX Ingress Controller, Kubernetes Service, NGINX sidecar, and PHP-FPM.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 28px; font-weight: 800; fill: #0f2d8f; }
+      .label { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 17px; font-weight: 800; fill: #0f172a; }
+      .small { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #475569; }
+      .tiny { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #64748b; }
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 14; }
+      .edge { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.4; rx: 14; }
+      .cf { fill: #fff7ed; stroke: #f97316; stroke-width: 2.4; rx: 14; }
+      .do { fill: #eff6ff; stroke: #0284c7; stroke-width: 2.4; rx: 14; }
+      .ing { fill: #ecfeff; stroke: #0891b2; stroke-width: 2.4; rx: 14; }
+      .svc { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2.4; rx: 14; }
+      .pod { fill: #ffffff; stroke: #64748b; stroke-width: 2.2; rx: 16; }
+      .nginx { fill: #fefce8; stroke: #ca8a04; stroke-width: 2.4; rx: 12; }
+      .fpm { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2.4; rx: 12; }
+      .badge1 { fill: #dbeafe; stroke: #2563eb; stroke-width: 1.3; rx: 10; }
+      .badge2 { fill: #fef9c3; stroke: #ca8a04; stroke-width: 1.3; rx: 10; }
+      .arrow { stroke: #f97316; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .arrowBlue { stroke: #2563eb; stroke-width: 3; fill: none; marker-end: url(#arrowBlue); }
+      .fastcgi { stroke: #7c3aed; stroke-width: 2.6; stroke-dasharray: 8 6; fill: none; marker-end: url(#arrowPurple); }
+      .shadow { filter: url(#shadow); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f97316"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" width="820" height="720"/>
+  <text x="410" y="42" text-anchor="middle" class="title">Current Moodle Traffic Path</text>
+
+  <rect x="80" y="68" width="220" height="66" class="edge" filter="url(#shadow)"/>
+  <text x="190" y="95" text-anchor="middle" class="label">Client Browser</text>
+  <text x="190" y="116" text-anchor="middle" class="small">HTTPS request</text>
+
+  <path class="arrow" d="M300 101 H342"/>
+
+  <rect x="342" y="68" width="258" height="66" class="cf" filter="url(#shadow)"/>
+  <text x="471" y="94" text-anchor="middle" class="label">Cloudflare Proxy</text>
+  <text x="471" y="116" text-anchor="middle" class="small">Proxied DNS record</text>
+
+  <path class="arrow" d="M471 134 V164"/>
+
+  <rect x="166" y="164" width="488" height="68" class="do" filter="url(#shadow)"/>
+  <text x="410" y="190" text-anchor="middle" class="label">DigitalOcean Load Balancer</text>
+  <text x="410" y="213" text-anchor="middle" class="small">Kubernetes Service type=LoadBalancer</text>
+
+  <path class="arrow" d="M410 232 V262"/>
+
+  <rect x="54" y="262" width="712" height="76" class="ing" filter="url(#shadow)"/>
+  <rect x="75" y="278" width="112" height="24" class="badge1"/>
+  <text x="131" y="295" text-anchor="middle" class="tiny">NGINX layer 1</text>
+  <text x="410" y="291" text-anchor="middle" class="label">NGINX Ingress Controller</text>
+  <text x="410" y="316" text-anchor="middle" class="small">Ingress routing + least_conn load balancing across backend Pods</text>
+
+  <path class="arrowBlue" d="M410 338 V368"/>
+
+  <rect x="112" y="368" width="596" height="68" class="svc" filter="url(#shadow)"/>
+  <text x="410" y="395" text-anchor="middle" class="label">Kubernetes Ingress Backend → Service moodle</text>
+  <text x="410" y="417" text-anchor="middle" class="small">Service type=ClusterIP, targetPort=http</text>
+
+  <path class="arrowBlue" d="M410 436 V474"/>
+
+  <rect x="66" y="474" width="688" height="170" class="pod" filter="url(#shadow)"/>
+  <text x="410" y="505" text-anchor="middle" class="label">Moodle Web Pod replicas</text>
+  <text x="410" y="526" text-anchor="middle" class="small">HPA scales replicas; each Pod contains the same sidecar pattern</text>
+  <rect x="94" y="490" width="112" height="24" class="badge2"/>
+  <text x="150" y="507" text-anchor="middle" class="tiny">NGINX layer 2</text>
+
+  <rect x="126" y="552" width="220" height="78" class="nginx"/>
+  <text x="236" y="584" text-anchor="middle" class="label">NGINX sidecar</text>
+  <text x="236" y="608" text-anchor="middle" class="small">HTTP :80 inside each Pod</text>
+
+  <path class="fastcgi" d="M346 591 H474"/>
+  <text x="410" y="578" text-anchor="middle" class="tiny">FastCGI</text>
+
+  <rect x="474" y="552" width="220" height="78" class="fpm"/>
+  <text x="584" y="584" text-anchor="middle" class="label">PHP-FPM container</text>
+  <text x="584" y="608" text-anchor="middle" class="small">Moodle application :9000</text>
+
+  <rect x="54" y="660" width="712" height="42" class="box"/>
+  <text x="410" y="686" text-anchor="middle" class="small">Why sidecar? The Moodle image is PHP-FPM, so NGINX accepts HTTP and forwards dynamic requests to PHP-FPM.</text>
+</svg>

@@ -369,6 +369,7 @@ step_helm_deploy() {
   fi
   if [[ "${WORKSPACE}" == "staging" ]]; then
     stage_args+=(
+      --set autoscaling.enabled=false
       --set resources.requests.cpu="${STAGING_MOODLE_CPU_REQUEST}"
       --set resources.requests.memory="${STAGING_MOODLE_MEMORY_REQUEST}"
       --set pgbouncer.resources.requests.cpu="${STAGING_PGBOUNCER_CPU_REQUEST}"
@@ -376,7 +377,7 @@ step_helm_deploy() {
       --set pgbouncer.readReplica.resources.requests.cpu="${STAGING_PGBOUNCER_CPU_REQUEST}"
       --set pgbouncer.readReplica.resources.requests.memory="${STAGING_PGBOUNCER_MEMORY_REQUEST}"
     )
-    echo "Staging mode: web request cpu=${STAGING_MOODLE_CPU_REQUEST} mem=${STAGING_MOODLE_MEMORY_REQUEST}"
+    echo "Staging mode: autoscaling disabled; web request cpu=${STAGING_MOODLE_CPU_REQUEST} mem=${STAGING_MOODLE_MEMORY_REQUEST}"
   fi
 
   helm upgrade --install moodle "${HELM_CHART}" \
